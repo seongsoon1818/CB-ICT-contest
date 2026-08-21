@@ -1,5 +1,12 @@
 # Infrastructure
 
-이 디렉터리는 향후 로컬 실행과 배포에 필요한 인프라 구성을 위한 경계입니다.
+이번 Backend Sprint 1에서는 로컬 개발용 PostgreSQL만 Docker Compose로 제공합니다.
 
-Phase 0에서는 Docker 서비스, broker 설정, 배포 파일을 추가하지 않습니다.
+```bash
+docker compose -f infra/docker-compose.yml up -d postgres
+docker compose -f infra/docker-compose.yml config
+```
+
+Mosquitto, MQTT Publisher, AI Server, Raspberry Pi 서비스는 이번 단계에 포함하지 않습니다.
+
+이 디렉터리는 향후 로컬 실행과 배포에 필요한 인프라 구성의 경계입니다.

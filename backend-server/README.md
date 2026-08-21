@@ -1,5 +1,31 @@
 # Backend Server
 
-이 디렉터리는 향후 Java 17과 Spring Boot 3 기반 Backend 서버의 경계입니다. Detection Event 수신·저장, 위험도 판단, 이벤트 관리, MQTT 명령 생성을 담당합니다.
+Java 17과 Spring Boot 3 기반 Backend 서버입니다. 이번 Sprint 1에서는 Mock Detection Event를 검증하고 PostgreSQL에 저장하며 RiskDecision과 HIGH 시 DeviceCommand를 함께 기록합니다.
 
-Phase 0에서는 애플리케이션 코드, PostgreSQL migration, 실제 MQTT 클라이언트를 추가하지 않고 데이터 모델과 경계만 docs/architecture-v1.md에서 정의합니다.
+## API
+
+```text
+POST /api/v1/detection/events
+```
+
+요청 JSON은 Phase 0에서 정의한 Detection Event 구조를 따릅니다. `eventId`가 이미 저장되어 있으면 `409 Conflict`를 반환합니다.
+
+## 로컬 실행
+
+저장소 루트에서 PostgreSQL을 먼저 실행합니다.
+
+```bash
+docker compose -f infra/docker-compose.yml up -d postgres
+cd backend-server
+./gradlew bootRun
+```
+
+테스트는 외부 PostgreSQL 없이 H2 테스트 데이터베이스를 사용합니다.
+
+```bash
+./gradlew test
+```
+
+이번 단계에서는 MQTT 전송, AI Server, YOLO, Raspberry Pi, Dashboard를 구현하지 않습니다.
+
+Phase 0에서는 실제 MQTT 클라이언트와 PostgreSQL migration을 추가하지 않고 데이터 모델과 경계만 docs/architecture-v1.md에서 정의합니다.

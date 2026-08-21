@@ -38,3 +38,7 @@ mosquitto/log/
 logs/
 *.log
 .DS_Store
+
+# Existing local-only marker and wrapper exception
+부품.md
+!backend-server/gradle/wrapper/gradle-wrapper.jar
