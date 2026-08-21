@@ -75,6 +75,9 @@ public class DetectionEventService {
 
         String commandId = null;
         if (assessment.level() == RiskLevel.HIGH) {
+            // TODO:
+            // MVP에서는 cameraId를 deviceId로 임시 사용한다.
+            // Camera-Device Mapping 테이블 추가 후 제거 예정.
             DeviceCommand command = deviceCommandRepository.save(new DeviceCommand(
                     "command-" + UUID.randomUUID(),
                     event,

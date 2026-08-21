@@ -41,7 +41,7 @@ public class RiskDecisionEngine {
         return new RiskAssessment(boundedScore, riskLevel, String.join(", ", reasons));
     }
 
-    private RiskLevel toRiskLevel(int score) {
+    RiskLevel toRiskLevel(int score) {
         if (score < 40) {
             return RiskLevel.LOW;
         }
