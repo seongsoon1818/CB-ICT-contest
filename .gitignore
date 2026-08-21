@@ -1,4 +1,40 @@
-/change_log/
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
 
+# Java / Gradle
+.gradle/
+**/build/
+out/
+*.class
+*.jar
 
-부품.md
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Model binaries
+*.pt
+*.pth
+*.onnx
+
+# Local database and MQTT data
+*.db
+*.sqlite
+*.sqlite3
+mosquitto/data/
+mosquitto/log/
+
+# Logs and OS metadata
+logs/
+*.log
+.DS_Store
