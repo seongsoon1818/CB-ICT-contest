@@ -27,3 +27,5 @@ cd backend-server
 ```
 
 이번 단계에서는 MQTT 전송, AI Server, YOLO, Raspberry Pi, Dashboard를 구현하지 않습니다.
+
+Phase 0에서는 실제 MQTT 클라이언트와 PostgreSQL migration을 추가하지 않고 데이터 모델과 경계만 docs/architecture-v1.md에서 정의합니다.
