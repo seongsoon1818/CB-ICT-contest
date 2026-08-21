@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: birdguard-backend
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/birdguard}
+    username: ${DB_USERNAME:birdguard}
+    password: ${DB_PASSWORD:birdguard}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: ${DDL_AUTO:update}
+    properties:
+      hibernate:
+        format_sql: true
+
+server:
+  port: ${SERVER_PORT:8080}

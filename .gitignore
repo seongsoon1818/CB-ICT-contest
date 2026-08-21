@@ -2,3 +2,21 @@
 
 
 부품.md
+
+# Java / Gradle
+.gradle/
+**/build/
+*.class
+*.jar
+!backend-server/gradle/wrapper/gradle-wrapper.jar
+
+# Local configuration and runtime data
+.env
+*.db
+*.sqlite
+*.sqlite3
+
+# Model binaries must not be committed
+*.pt
+*.pth
+*.onnx
