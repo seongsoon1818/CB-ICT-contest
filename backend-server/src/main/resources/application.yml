@@ -1,10 +1,13 @@
 spring:
   application:
-    name: birdguard-backend
+    name: animalguard-backend
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/birdguard}
-    username: ${DB_USERNAME:birdguard}
-    password: ${DB_PASSWORD:birdguard}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/animalguard}
+    username: ${DB_USERNAME:animalguard}
+    password: ${DB_PASSWORD:animalguard}
   jpa:
     open-in-view: false
     hibernate:
@@ -15,3 +18,13 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+
+animalguard:
+  risk:
+    class-scores:
+      MAGPIE: 30
+      UNKNOWN: 0
+    count-threshold: 3
+    count-score: 20
+    confidence-threshold: 0.90
+    confidence-score: 20

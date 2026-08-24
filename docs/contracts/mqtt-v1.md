@@ -8,14 +8,14 @@ Backend never sends GPIO pin numbers.
 
 ## Topics
 
-The topic prefix is birdguard.
+The topic prefix is animalguard.
 
 | Topic | Direction | Purpose | Default delivery |
 | --- | --- | --- | --- |
-| birdguard/devices/{deviceId}/commands | Backend → Raspberry Pi | Semantic device commands | QoS 1, retain false |
-| birdguard/devices/{deviceId}/acks | Raspberry Pi → Backend | Command processing result | QoS 1 |
-| birdguard/devices/{deviceId}/status | Raspberry Pi → Backend | Device health and state | QoS 1 |
-| birdguard/devices/{deviceId}/sensor-events | Raspberry Pi → Backend | Sensor observations | QoS 1 |
+| animalguard/devices/{deviceId}/commands | Backend → Raspberry Pi | Semantic device commands | QoS 1, retain false |
+| animalguard/devices/{deviceId}/acks | Raspberry Pi → Backend | Command processing result | QoS 1 |
+| animalguard/devices/{deviceId}/status | Raspberry Pi → Backend | Device health and state | QoS 1 |
+| animalguard/devices/{deviceId}/sensor-events | Raspberry Pi → Backend | Sensor observations | QoS 1 |
 
 deviceId is the stable identifier in the topic and payload. Topic path values must be safely encoded by the eventual MQTT client.
 

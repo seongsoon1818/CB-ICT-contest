@@ -1,11 +1,11 @@
-# BirdGuard AI Backend & AI Server Implementation Roadmap
+# AnimalGuard AI Backend & AI Server Implementation Roadmap
 
 ## 1. 프로젝트 개요
 
 ### 프로젝트 목표
 
-카메라 기반 조류 탐지 및 분류 결과를 활용하여 농작물 피해 위험도를 판단하고,
-필요한 경우에만 비살상 방조 장치를 작동시키는 AI 기반 농업 보호 시스템 구축
+카메라 기반 유해동물 탐지 및 분류 결과를 활용하여 농작물 피해 위험도를 판단하고,
+필요한 경우에만 비살상 대응 장치를 작동시키는 AI 기반 농업 보호 시스템 구축
 
 
 ## 2. 전체 시스템 흐름
@@ -15,7 +15,7 @@ Camera
 ↓
 
 AI Inference Server
-(YOLO Detection + Bird Classification)
+(YOLO Detection + Animal Classification)
 
 ↓
 
@@ -54,16 +54,16 @@ Speaker / Motor / LED
 
 담당:
 
-- 조류 데이터 수집
+- 유해동물 데이터 수집
 - 이미지 라벨링
 - 객체 탐지 모델 학습
-- 조류 분류 모델 학습
+- 유해동물 분류 모델 학습
 - 모델 성능 개선
 
 제공 결과:
 
-- bird_detector.pt
-- bird_classifier.pt
+- animal_detector.pt
+- animal_classifier.pt
 - classes.json
 
 
@@ -79,8 +79,8 @@ Speaker / Motor / LED
 - AI 모델 로딩
 - 이미지 입력 처리
 - YOLO 객체 탐지 실행
-- 새 이미지 Crop
-- 조류 분류 모델 실행
+- 탐지 영역 Crop
+- 유해동물 분류 모델 실행
 - 결과 JSON 생성
 
 
@@ -132,13 +132,13 @@ Speaker / Motor / LED
 # 5. 프로젝트 구조
 
 
-bird-guard-system
+animal-guard-system
 
     ├── ai-server
     │
     │   ├── FastAPI
     │   ├── YOLO Detector
-    │   ├── Bird Classifier
+    │   ├── Animal Classifier
     │   ├── OpenCV Processing
     │   └── Model Files
     │
@@ -174,37 +174,43 @@ POST /api/v1/detection/events
 
 Request Example:
 
-
+```json
 {
+  "eventId": "15356786-9588-4db4-a0fe-f8acd6300868",
   "cameraId": "cam-001",
-  "timestamp": "2026-08-15T15:00:00",
-  "birds": [
+  "capturedAt": "2026-08-24T08:00:00Z",
+  "image": {"width": 1280, "height": 720},
+  "model": {
+    "detectorVersion": "animal-detector-v1",
+    "classifierVersion": null
+  },
+  "detections": [
     {
-      "trackId": 1,
-      "species": "MAGPIE",
-      "confidence": 0.92,
-      "bbox": {
-        "x": 100,
-        "y": 200,
-        "width": 50,
-        "height": 60
-      },
-      "insideField": true
+      "detectionId": "det-001",
+      "trackId": null,
+      "classCode": "WILD_BOAR",
+      "detectionConfidence": 0.96,
+      "classificationConfidence": 0.91,
+      "bbox": {"x": 100, "y": 180, "width": 260, "height": 190}
     }
   ]
 }
+```
 
 
 필드 설명:
 
-| 필드        | 설명              |
-| ----------- | ----------------- |
-| cameraId    | 카메라 ID         |
-| trackId     | 동일 객체 추적 ID |
-| species     | 새 종류           |
-| confidence  | AI 신뢰도         |
-| bbox        | 위치 정보         |
-| insideField | 밭 내부 여부      |
+| 필드 | 설명 |
+| --- | --- |
+| eventId | UUID 중복 방지 키 |
+| cameraId | 카메라 ID |
+| capturedAt | timezone 포함 촬영 시각 |
+| model | detectorVersion 필수, classifierVersion nullable |
+| detections | 0개 이상의 탐지 배열 |
+| classCode | 대문자·숫자·underscore 대상 코드 |
+| detectionConfidence | 객체 탐지 신뢰도 |
+| classificationConfidence | 분류 신뢰도 |
+| bbox | 픽셀 좌표와 양의 크기 |
 
 
 ---
@@ -248,7 +254,7 @@ Database
 # Database 설계
 
 
-## BirdDetection
+## AnimalDetection
 
 
 AI 탐지 결과 저장
@@ -257,13 +263,13 @@ AI 탐지 결과 저장
 필드:
 
 - id
-- camera_id
+- event_id
+- detection_id
 - track_id
-- species
-- confidence
-- bbox_x
-- bbox_y
-- inside_field
+- class_code
+- detection_confidence
+- classification_confidence
+- bbox_x / bbox_y / bbox_width / bbox_height
 - created_at
 
 
@@ -278,7 +284,7 @@ AI 탐지 결과 저장
 필드:
 
 - id
-- detection_id
+- event_id
 - risk_score
 - risk_level
 - reason
@@ -296,9 +302,12 @@ AI 탐지 결과 저장
 필드:
 
 - id
+- command_id
+- event_id
+- device_id
 - command_type
 - status
-- duration
+- duration_ms
 - created_at
 
 
@@ -326,7 +335,7 @@ AI 탐지 결과 저장
 
 ## 목표
 
-이미지를 입력받아 새 탐지 및 분류 결과 반환
+이미지를 입력받아 유해동물 탐지 및 분류 결과 반환
 
 
 API:
@@ -354,7 +363,7 @@ YOLO Detection
 
 ↓
 
-Bird Crop
+Animal Detection Crop
 
 ↓
 
@@ -369,8 +378,9 @@ Result JSON
 
 
 {
-  "species": "MAGPIE",
-  "confidence": 0.93,
+  "classCode": "WILD_BOAR",
+  "detectionConfidence": 0.93,
+  "classificationConfidence": 0.90,
   "bbox": {
     "x":100,
     "y":200
@@ -437,25 +447,7 @@ Backend:
 ## Risk Score 계산
 
 
-위험도 =
-
-종 위험도
-
-+
-
-AI Confidence
-
-+
-
-밭 내부 여부
-
-+
-
-개체 수
-
-+
-
-체류 시간
+현재 MVP 위험도 = 이벤트 내 최대 class score 1회 + 탐지 수 threshold 점수 1회 + 두 confidence threshold 점수 1회
 
 
 예시:
@@ -463,14 +455,14 @@ AI Confidence
 
 까치 +30
 
-밭 내부 +30
-
 3마리 이상 +20
 
 Confidence 90% +20
 
 
-Total = 100
+Total = 70
+
+운영 설정은 현재 MAGPIE 30점과 UNKNOWN 0점만 정의합니다. 미설정 classCode는 0점이며 최종 점수는 0~100으로 제한합니다.
 
 
 ---
@@ -478,11 +470,11 @@ Total = 100
 ## 위험 단계
 
 
-| Score   | Action         |
-| ------- | -------------- |
-| 0~40    | 관찰           |
-| 40~70   | 경고           |
-| 70 이상 | 방조 장치 작동 |
+| Level | Score | 현재 Backend 동작 |
+| --- | --- | --- |
+| LOW | 0 <= score < 40 | DeviceCommand 미생성 |
+| MEDIUM | 40 <= score < 70 | DeviceCommand 미생성 |
+| HIGH | 70 <= score <= 100 | DeviceCommand 생성 |
 
 
 ---
@@ -498,7 +490,7 @@ Backend 판단 결과를 Raspberry Pi로 전달
 MQTT Topic:
 
 
-bird/device/command
+animalguard/devices/{deviceId}/commands
 
 
 Message Example:
@@ -550,7 +542,7 @@ LED ON
 
 ## 목적
 
-같은 새 때문에 장치가 반복 작동하는 문제 방지
+같은 대상 때문에 장치가 반복 작동하는 문제 방지
 
 
 State Machine:
@@ -601,8 +593,8 @@ GET /statistics
 
 표시 정보:
 
-- 현재 탐지된 새
-- 새 종류
+- 현재 탐지된 유해동물
+- 대상 classCode
 - confidence
 - 위험도
 - 장치 작동 기록
@@ -673,7 +665,7 @@ AI Server 구현
 
 완료 기준:
 
-이미지 → 새 종류 반환 가능
+이미지 → 대상 classCode 반환 가능
 
 
 ---
@@ -747,7 +739,7 @@ Microphone
 
 ↓
 
-Bird Sound Detection
+Animal Sound Detection
 
 ↓
 
