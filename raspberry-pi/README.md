@@ -2,7 +2,7 @@
 
 이 디렉터리는 AnimalGuard Raspberry Pi 장치 구성요소의 경계입니다. 장치는 향후 MQTT의 의미 기반 command를 GPIO 동작으로 매핑하고 명령 처리 결과와 장치 상태를 발행합니다.
 
-현재는 GPIO 또는 MQTT 실행 코드를 추가하지 않고 `docs/contracts/mqtt-v1.md` 계약만 정의합니다.
+현재는 GPIO 또는 MQTT 실행 코드를 추가하지 않고 MQTT v1 계약만 정의합니다.
 
 ## 운영 관리 포트
 

@@ -8,7 +8,7 @@ AnimalGuard의 Java 17·Spring Boot 3 Backend 서버입니다. Detection Event v
 POST /api/v1/detection/events
 ```
 
-요청은 `model`과 `detections`를 포함합니다. 각 탐지는 `classCode`를 사용하며 `eventId`가 이미 저장되어 있으면 `409 Conflict`를 반환합니다. 상세 계약은 `docs/contracts/detection-event-v1.md`와 JSON Schema를 따릅니다.
+요청은 `model`과 `detections`를 포함합니다. 각 탐지는 `classCode`를 사용하며 `eventId`가 이미 저장되어 있으면 `409 Conflict`를 반환합니다.
 
 ## 위험도 설정
 

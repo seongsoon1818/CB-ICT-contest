@@ -24,21 +24,12 @@ AnimalGuard는 카메라 기반 유해동물 탐지·분류 결과를 활용해 
 - raspberry-pi: Raspberry Pi 장치의 MQTT/GPIO 경계
 - models: 향후 모델 산출물 보관 위치. 모델 바이너리는 커밋하지 않음
 - infra: 로컬 PostgreSQL 실행 구성
-- docs: 로드맵, 아키텍처, API/MQTT 계약
 
 ## 현재 구현 상태
 
 Backend는 `POST /api/v1/detection/events`로 Detection Event v1을 받아 이벤트와 탐지, 모델 버전, 위험도 판단을 저장합니다. HIGH 위험도일 때만 DeviceCommand를 생성하며 중복 eventId는 `409 Conflict`로 거절합니다.
 
 AI Server, 실제 모델, MQTT/GPIO 실행 코드, State Machine/cooldown, ROI 계산, DB migration framework는 아직 구현하지 않았습니다.
-
-## 문서
-
-- [구현 로드맵](docs/BACKEND_AI_IMPLEMENTATION_ROADMAP.md)
-- [아키텍처 및 데이터 모델](docs/architecture-v1.md)
-- [Detection Event v1](docs/contracts/detection-event-v1.md)
-- [Detection Event v1 JSON Schema](docs/contracts/detection-event-v1.schema.json)
-- [MQTT v1](docs/contracts/mqtt-v1.md)
 
 ## 로컬 실행
 
