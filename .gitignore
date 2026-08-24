@@ -39,7 +39,12 @@ logs/
 *.log
 .DS_Store
 
-# Existing local-only marker and wrapper exception
+# Existing local-only marker, shared contracts, and wrapper exception
 부품.md
-docs/
+docs/*
+!docs/contracts/
+docs/contracts/*
+!docs/contracts/detection-event-v1.md
+!docs/contracts/detection-event-v1.schema.json
+!docs/contracts/mqtt-v1.md
 !backend-server/gradle/wrapper/gradle-wrapper.jar
