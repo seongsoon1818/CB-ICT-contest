@@ -59,7 +59,8 @@ public class RiskDecisionEngine {
 
         boolean hasHighConfidenceDetection = detections.stream()
                 .anyMatch(detection -> detection.detectionConfidence() >= properties.confidenceThreshold()
-                        && detection.classificationConfidence() >= properties.confidenceThreshold());
+                        && (detection.classificationConfidence() == null
+                        || detection.classificationConfidence() >= properties.confidenceThreshold()));
         if (hasHighConfidenceDetection) {
             score += properties.confidenceScore();
             reasons.add("CONFIDENCE_GE_%s +%d".formatted(
