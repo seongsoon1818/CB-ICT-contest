@@ -41,4 +41,5 @@ logs/
 
 # Existing local-only marker and wrapper exception
 부품.md
+docs/
 !backend-server/gradle/wrapper/gradle-wrapper.jar
