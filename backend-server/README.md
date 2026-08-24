@@ -24,13 +24,9 @@ cd backend-server
 SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
 
-`local` 프로필에서만 Hibernate schema update를 기본 사용합니다. 기본 database, username, password는 `animalguard`입니다. 테스트는 외부 PostgreSQL 없이 H2의 `animalguard` 메모리 데이터베이스를 사용합니다.
+`local` 프로필에서만 로컬 datasource 기본값과 Hibernate schema update를 사용합니다. 기본 database, username, password는 `animalguard`입니다. 테스트는 외부 PostgreSQL 없이 H2의 `animalguard` 메모리 데이터베이스를 사용합니다.
 
-기본 프로필은 기존 스키마를 변경하지 않고 `ddl-auto=validate`로 검증합니다. 기존 non-local PostgreSQL에는 애플리케이션 시작 전에 다음 SQL을 한 번 수동 적용해 이벤트 내 `detectionId` 고유성 제약을 준비합니다. 환경별 PostgreSQL DSN을 `POSTGRES_DSN`에 지정하며, 중복 데이터나 같은 이름의 제약이 이미 있으면 SQL이 실패하므로 먼저 스키마와 데이터를 확인해야 합니다.
-
-```bash
-psql "$POSTGRES_DSN" -f sql/animal-detections-unique-constraint.sql
-```
+기본 프로필은 datasource 환경 변수 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`를 요구하고 기존 스키마를 변경하지 않은 채 `ddl-auto=validate`로 검증합니다. 이번 단계에는 baseline·rename·backfill migration이 없으므로 non-local 배포를 지원하지 않습니다. migration 수단을 마련하기 전에는 기존 BirdGuard DB에 이 애플리케이션을 직접 기동하지 않습니다.
 
 ```bash
 ./gradlew test

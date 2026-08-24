@@ -4,6 +4,9 @@ import com.animalguard.config.RiskProperties;
 import com.animalguard.domain.RiskLevel;
 import com.animalguard.dto.DetectionEventRequest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import java.util.List;
 import java.util.Map;
@@ -61,6 +64,17 @@ class RiskDecisionEngineTest {
     @Test
     void treatsUnconfiguredClassCodeAsZero() {
         assertThat(engine.decide(List.of(detection("WATER_DEER", 0.80, 0.80))).score()).isZero();
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void logsUnconfiguredClassCode(CapturedOutput output) {
+        engine.decide(List.of(
+                detection("WATER_DEER", 0.80, 0.80),
+                detection("WATER_DEER", 0.70, 0.70)
+        ));
+
+        assertThat(output).contains("Unconfigured classCode received: WATER_DEER");
     }
 
     @Test

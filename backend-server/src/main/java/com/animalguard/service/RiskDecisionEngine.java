@@ -4,6 +4,7 @@ import com.animalguard.config.RiskProperties;
 import com.animalguard.domain.RiskLevel;
 import com.animalguard.dto.DetectionEventRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -11,9 +12,13 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class RiskDecisionEngine {
 
     private final RiskProperties properties;
@@ -21,6 +26,13 @@ public class RiskDecisionEngine {
     public RiskAssessment decide(List<DetectionEventRequest.Detection> detections) {
         int score = 0;
         List<String> reasons = new ArrayList<>();
+
+        Set<String> unconfiguredClassCodes = detections.stream()
+                .map(DetectionEventRequest.Detection::classCode)
+                .filter(classCode -> !properties.classScores().containsKey(classCode))
+                .collect(Collectors.toCollection(TreeSet::new));
+        unconfiguredClassCodes.forEach(classCode ->
+                log.warn("Unconfigured classCode received: {}", classCode));
 
         Map.Entry<String, Integer> highestClassScore = detections.stream()
                 .map(detection -> Map.entry(

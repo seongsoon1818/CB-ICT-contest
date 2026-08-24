@@ -5,9 +5,9 @@ spring:
     deserialization:
       fail-on-unknown-properties: true
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/animalguard}
-    username: ${DB_USERNAME:animalguard}
-    password: ${DB_PASSWORD:animalguard}
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
   jpa:
     open-in-view: false
     hibernate:

@@ -11,6 +11,8 @@ import jakarta.validation.constraints.Positive;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Validated
@@ -20,7 +22,7 @@ public record RiskProperties(
                 @Pattern(regexp = "^[A-Z][A-Z0-9_]*$") String,
                 @NotNull @Min(0) @Max(100) Integer
                 > classScores,
-        @Positive int countThreshold,
+        @Positive @Max(100) int countThreshold,
         @Min(0) @Max(100) int countScore,
         @DecimalMin("0.0") @DecimalMax("1.0") double confidenceThreshold,
         @Min(0) @Max(100) int confidenceScore,
@@ -28,7 +30,9 @@ public record RiskProperties(
         @Min(1) @Max(100) int highThreshold
 ) {
     public RiskProperties {
-        classScores = classScores == null ? Map.of() : Map.copyOf(classScores);
+        classScores = classScores == null
+                ? Map.of()
+                : Collections.unmodifiableMap(new LinkedHashMap<>(classScores));
     }
 
     @AssertTrue(message = "mediumThreshold must be less than highThreshold")

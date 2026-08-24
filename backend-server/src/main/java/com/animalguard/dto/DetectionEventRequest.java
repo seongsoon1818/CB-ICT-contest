@@ -1,5 +1,6 @@
 package com.animalguard.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
@@ -44,6 +45,22 @@ public record DetectionEventRequest(
                 .allMatch(detectionIds::add);
     }
 
+    @AssertTrue(message = "bbox must be within image bounds")
+    public boolean isBoundingBoxesWithinImage() {
+        if (image == null || image.width() == null || image.height() == null || detections == null) {
+            return true;
+        }
+
+        return detections.stream()
+                .filter(Objects::nonNull)
+                .map(Detection::bbox)
+                .filter(Objects::nonNull)
+                .filter(bbox -> bbox.x() != null && bbox.y() != null
+                        && bbox.width() != null && bbox.height() != null)
+                .allMatch(bbox -> (long) bbox.x() + bbox.width() <= image.width()
+                        && (long) bbox.y() + bbox.height() <= image.height());
+    }
+
     public record Image(
             @NotNull @Positive Integer width,
             @NotNull @Positive Integer height
@@ -52,13 +69,14 @@ public record DetectionEventRequest(
 
     public record Model(
             @NotBlank @Size(max = 128) String detectorVersion,
-            @Size(max = 128) @Pattern(regexp = ".*\\S.*") String classifierVersion
+            @JsonProperty(required = true)
+            @Size(max = 128) @Pattern(regexp = "(?s).*\\S.*") String classifierVersion
     ) {
     }
 
     public record Detection(
             @NotBlank @Size(max = 64) @Pattern(regexp = "^[A-Za-z0-9][A-Za-z0-9._-]*$") String detectionId,
-            @PositiveOrZero Long trackId,
+            @JsonProperty(required = true) @PositiveOrZero Long trackId,
             @NotBlank @Size(max = 64) @Pattern(regexp = "^[A-Z][A-Z0-9_]*$") String classCode,
             @NotNull @DecimalMin("0.0") @DecimalMax("1.0") Double detectionConfidence,
             @NotNull @DecimalMin("0.0") @DecimalMax("1.0") Double classificationConfidence,

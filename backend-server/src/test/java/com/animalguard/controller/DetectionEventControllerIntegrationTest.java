@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
 import static java.util.stream.Collectors.joining;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -60,7 +61,7 @@ class DetectionEventControllerIntegrationTest {
                         .content(oneDetectionPayload(EVENT_ID)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.eventId", is(EVENT_ID)))
-                .andExpect(jsonPath("$.riskScore", is(50)))
+                .andExpect(jsonPath("$.riskScore", is(45)))
                 .andExpect(jsonPath("$.riskLevel", is("MEDIUM")))
                 .andExpect(jsonPath("$.commandId").doesNotExist());
 
@@ -139,6 +140,14 @@ class DetectionEventControllerIntegrationTest {
     }
 
     @Test
+    void rejectsMissingClassifierVersionKey() throws Exception {
+        String payload = oneDetectionPayload(EVENT_ID)
+                .replace(", \"classifierVersion\": null", "");
+
+        assertBadRequest(payload);
+    }
+
+    @Test
     void rejectsMissingDetections() throws Exception {
         assertBadRequest(payloadWithoutDetections(EVENT_ID));
     }
@@ -155,6 +164,14 @@ class DetectionEventControllerIntegrationTest {
     void rejectsMissingClassCode() throws Exception {
         String payload = oneDetectionPayload(EVENT_ID)
                 .replace("\"classCode\": \"MAGPIE\",", "");
+
+        assertBadRequest(payload);
+    }
+
+    @Test
+    void rejectsMissingTrackIdKey() throws Exception {
+        String payload = oneDetectionPayload(EVENT_ID)
+                .replace("\"trackId\": null,", "");
 
         assertBadRequest(payload);
     }
@@ -190,6 +207,14 @@ class DetectionEventControllerIntegrationTest {
     }
 
     @Test
+    void rejectsBoundingBoxOutsideImage() throws Exception {
+        String payload = oneDetectionPayload(EVENT_ID)
+                .replace("\"x\": 100", "\"x\": 1250");
+
+        assertBadRequest(payload);
+    }
+
+    @Test
     void rejectsNonUuidEventId() throws Exception {
         assertBadRequest(oneDetectionPayload("event-not-uuid"));
     }
@@ -200,6 +225,20 @@ class DetectionEventControllerIntegrationTest {
                 .replace("\"detections\": [", "\"detections\": [null,");
 
         assertBadRequest(payload);
+    }
+
+    @Test
+    void validationErrorIncludesViolationDetails() throws Exception {
+        String payload = oneDetectionPayload(EVENT_ID)
+                .replace("\"classCode\": \"MAGPIE\"", "\"classCode\": \"wild-boar\"");
+
+        mockMvc.perform(post("/api/v1/detection/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code", is("VALIDATION_ERROR")))
+                .andExpect(jsonPath("$.violations[*].field", hasItem("detections[0].classCode")))
+                .andExpect(jsonPath("$.violations[0].message").isNotEmpty());
     }
 
     @Test

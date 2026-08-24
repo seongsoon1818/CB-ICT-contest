@@ -47,16 +47,16 @@ JSON Schema: `detection-event-v1.schema.json`
 
 | Field | Contract |
 | --- | --- |
-| eventId | UUID. Backend의 멱등성과 중복 수신 방지 키입니다. |
+| eventId | UUID. Backend의 중복 수신 방지 키입니다. |
 | cameraId | 영문·숫자로 시작하고 영문·숫자·점·underscore·hyphen을 사용하는 안정적인 카메라 식별자입니다. |
 | capturedAt | timezone을 명시한 ISO 8601 / RFC 3339 date-time입니다. |
 | image.width, image.height | 양의 이미지 픽셀 크기입니다. |
 | model | 필수 모델 메타데이터 객체입니다. |
 | model.detectorVersion | 필수 detector 모델 버전입니다. |
-| model.classifierVersion | nullable classifier 모델 버전입니다. detector만 사용하면 null입니다. |
+| model.classifierVersion | 키는 필수이고 값은 nullable인 classifier 모델 버전입니다. detector만 사용하면 null입니다. |
 | detections | 0개 이상, 최대 100개의 유해동물 탐지 배열입니다. 결과가 없으면 `detections: []`입니다. |
 | detectionId | 이벤트 안에서 고유해야 하는 탐지 식별자입니다. |
-| trackId | MVP에서 nullable인 비음수 추적 ID입니다. |
+| trackId | 키는 필수이고 값은 MVP에서 nullable인 비음수 추적 ID입니다. |
 | classCode | 대문자·숫자·underscore 코드입니다. 알 수 없는 대상은 `UNKNOWN`입니다. |
 | detectionConfidence | 0 이상 1 이하인 detector confidence입니다. |
 | classificationConfidence | 0 이상 1 이하인 classifier confidence입니다. |
@@ -82,6 +82,7 @@ JSON Schema: `detection-event-v1.schema.json`
 - bbox는 좌상단 원점의 정수 이미지 픽셀 좌표입니다.
 - 네 bbox 필드는 모두 필수이며 width와 height는 1 이상입니다.
 - image width와 height는 양수이고 x와 y는 비음수입니다.
+- bbox 전체는 image width와 height 경계 안에 있어야 합니다.
 
 ## Empty event behavior
 
@@ -90,3 +91,42 @@ JSON Schema: `detection-event-v1.schema.json`
 ## Compatibility and validation
 
 Detection Event v1은 현재 producer가 없으므로 직접 일반화했습니다. 구버전 `birds`와 `speciesCode` payload는 지원하지 않으며 별도의 v2나 호환 adapter를 제공하지 않습니다. JSON Schema는 필수 구조와 primitive 제약의 machine-readable source이며 producer와 consumer는 v1 변경 시 함께 갱신해야 합니다.
+
+## Response contract
+
+정상 요청은 `201 Created`와 다음 구조를 반환합니다.
+
+~~~json
+{
+  "eventId": "15356786-9588-4db4-a0fe-f8acd6300868",
+  "riskScore": 50,
+  "riskLevel": "MEDIUM"
+}
+~~~
+
+HIGH 위험도에서 DeviceCommand가 생성되면 `commandId`가 포함됩니다. 명령이 생성되지 않으면 `commandId` 필드는 null이 아니라 응답에서 생략됩니다.
+
+## Error contract
+
+| HTTP status | code | Meaning |
+| --- | --- | --- |
+| 400 | VALIDATION_ERROR | JSON 구조는 읽었지만 필드 또는 객체 검증에 실패했습니다. |
+| 400 | INVALID_JSON | JSON을 읽을 수 없거나 필수 nullable 키가 누락됐습니다. |
+| 409 | DUPLICATE_EVENT | 같은 eventId가 이미 저장돼 중복 요청을 거절했습니다. |
+
+검증 실패는 rejected value를 노출하지 않고 field/global violation을 제공합니다.
+
+~~~json
+{
+  "code": "VALIDATION_ERROR",
+  "message": "Request validation failed",
+  "violations": [
+    {
+      "field": "detections[0].classCode",
+      "message": "must match \"^[A-Z][A-Z0-9_]*$\""
+    }
+  ]
+}
+~~~
+
+`INVALID_JSON`과 `DUPLICATE_EVENT`는 `code`와 `message`만 반환합니다.
