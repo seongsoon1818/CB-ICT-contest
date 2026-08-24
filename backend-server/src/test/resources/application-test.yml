@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:birdguard;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:mem:animalguard;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
     username: sa
     password:
     driver-class-name: org.h2.Driver
@@ -8,3 +8,15 @@ spring:
     hibernate:
       ddl-auto: create-drop
     database-platform: org.hibernate.dialect.H2Dialect
+
+animalguard:
+  risk:
+    class-scores:
+      MAGPIE: 25
+      UNKNOWN: 0
+    count-threshold: 3
+    count-score: 25
+    confidence-threshold: 0.90
+    confidence-score: 20
+    medium-threshold: 40
+    high-threshold: 70

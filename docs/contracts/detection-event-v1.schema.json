@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:birdguard:contract:detection-event:v1",
-  "title": "BirdGuard Detection Event v1",
-  "description": "An image-level bird detection event sent from AI Server to Backend.",
+  "$id": "urn:animalguard:contract:detection-event:v1",
+  "title": "AnimalGuard Detection Event v1",
+  "description": "An image-level animal detection event sent from AI Server to Backend.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,7 +11,7 @@
     "capturedAt",
     "image",
     "model",
-    "birds"
+    "detections"
   ],
   "properties": {
     "eventId": {
@@ -64,27 +64,33 @@
           "maxLength": 128
         },
         "classifierVersion": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1,
-          "maxLength": 128
+          "maxLength": 128,
+          "pattern": "\\S"
         }
       }
     },
-    "birds": {
+    "detections": {
       "type": "array",
+      "maxItems": 100,
+      "description": "At most 100 detections. Each detectionId must be unique within the event.",
       "items": {
-        "$ref": "#/$defs/birdDetection"
+        "$ref": "#/$defs/animalDetection"
       }
     }
   },
   "$defs": {
-    "birdDetection": {
+    "animalDetection": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "detectionId",
         "trackId",
-        "speciesCode",
+        "classCode",
         "detectionConfidence",
         "classificationConfidence",
         "bbox"
@@ -103,12 +109,12 @@
           ],
           "minimum": 0
         },
-        "speciesCode": {
+        "classCode": {
           "type": "string",
           "minLength": 1,
           "maxLength": 64,
           "pattern": "^[A-Z][A-Z0-9_]*$",
-          "description": "Use UNKNOWN when the species is not known."
+          "description": "Use UNKNOWN when the class is not known."
         },
         "detectionConfidence": {
           "type": "number",

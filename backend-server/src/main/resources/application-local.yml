@@ -1,0 +1,11 @@
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/animalguard}
+    username: ${DB_USERNAME:animalguard}
+    password: ${DB_PASSWORD:animalguard}
+  jpa:
+    hibernate:
+      ddl-auto: ${DDL_AUTO:update}

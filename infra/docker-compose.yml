@@ -2,18 +2,18 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: birdguard
-      POSTGRES_USER: birdguard
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-birdguard}
+      POSTGRES_DB: animalguard
+      POSTGRES_USER: animalguard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-animalguard}
     ports:
       - "5432:5432"
     volumes:
-      - birdguard-postgres-data:/var/lib/postgresql/data
+      - animalguard-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U birdguard -d birdguard"]
+      test: ["CMD-SHELL", "pg_isready -U animalguard -d animalguard"]
       interval: 5s
       timeout: 5s
       retries: 10
 
 volumes:
-  birdguard-postgres-data:
+  animalguard-postgres-data:
