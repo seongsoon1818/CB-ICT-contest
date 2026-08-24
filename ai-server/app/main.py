@@ -1,10 +1,30 @@
-from fastapi import FastAPI, HTTPException, status
+from datetime import datetime
+from typing import Annotated, Any, Protocol
+from uuid import uuid4
 
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+
+from app.inference import DETECTOR_VERSION, InvalidJpegError, MockInference, decode_jpeg
+from app.schemas import DetectionEvent, ImageInfo, ModelInfo
 from app.settings import Settings
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+MAX_JPEG_BYTES = 5 * 1024 * 1024
+CAMERA_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
+
+
+class BackendClientLike(Protocol):
+    async def send_detection_event(
+        self, event: DetectionEvent
+    ) -> dict[str, Any]: ...
+
+
+def create_app(
+    settings: Settings | None = None,
+    backend_client: BackendClientLike | None = None,
+) -> FastAPI:
     app_settings = settings or Settings.from_env()
+    inference = MockInference(app_settings.mock_result)
     application = FastAPI(title="AnimalGuard AI Server")
 
     @application.get("/health/live")
@@ -19,6 +39,64 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="BACKEND_BASE_URL is not configured",
             )
         return {"status": "READY", "inference": "mock"}
+
+    @application.post("/api/v1/analyze")
+    async def analyze(
+        frame: Annotated[UploadFile, File()],
+        cameraId: Annotated[
+            str,
+            Form(min_length=1, max_length=64, pattern=CAMERA_ID_PATTERN),
+        ],
+        capturedAt: Annotated[datetime, Form()],
+    ) -> dict[str, Any]:
+        if frame.content_type != "image/jpeg":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="frame must use image/jpeg Content-Type",
+            )
+
+        frame_bytes = await frame.read(MAX_JPEG_BYTES + 1)
+        if not frame_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="frame must not be empty",
+            )
+        if len(frame_bytes) > MAX_JPEG_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="frame exceeds the 5 MiB limit",
+            )
+        if capturedAt.tzinfo is None or capturedAt.utcoffset() is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="capturedAt must include a timezone",
+            )
+
+        try:
+            width, height = decode_jpeg(frame_bytes)
+        except InvalidJpegError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(error),
+            ) from error
+
+        event = DetectionEvent(
+            eventId=uuid4(),
+            cameraId=cameraId,
+            capturedAt=capturedAt,
+            image=ImageInfo(width=width, height=height),
+            model=ModelInfo(
+                detectorVersion=DETECTOR_VERSION,
+                classifierVersion=None,
+            ),
+            detections=inference.analyze(width, height),
+        )
+        if backend_client is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Backend client is not configured",
+            )
+        return await backend_client.send_detection_event(event)
 
     return application
 
