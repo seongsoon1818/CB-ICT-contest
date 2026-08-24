@@ -49,8 +49,8 @@ public class AnimalDetection {
     @Column(name = "detection_confidence", nullable = false)
     private double detectionConfidence;
 
-    @Column(name = "classification_confidence", nullable = false)
-    private double classificationConfidence;
+    @Column(name = "classification_confidence", nullable = true)
+    private Double classificationConfidence;
 
     @Column(name = "bbox_x", nullable = false)
     private int bboxX;
@@ -72,7 +72,7 @@ public class AnimalDetection {
             Long trackId,
             String classCode,
             double detectionConfidence,
-            double classificationConfidence,
+            Double classificationConfidence,
             int bboxX,
             int bboxY,
             int bboxWidth,

@@ -122,7 +122,10 @@
           "maximum": 1
         },
         "classificationConfidence": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 1
         },

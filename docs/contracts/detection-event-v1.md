@@ -31,7 +31,7 @@ JSON Schema: `detection-event-v1.schema.json`
       "trackId": null,
       "classCode": "WILD_BOAR",
       "detectionConfidence": 0.96,
-      "classificationConfidence": 0.91,
+      "classificationConfidence": null,
       "bbox": {
         "x": 100,
         "y": 180,
@@ -59,12 +59,16 @@ JSON Schema: `detection-event-v1.schema.json`
 | trackId | 키는 필수이고 값은 MVP에서 nullable인 비음수 추적 ID입니다. |
 | classCode | 대문자·숫자·underscore 코드입니다. 알 수 없는 대상은 `UNKNOWN`입니다. |
 | detectionConfidence | 0 이상 1 이하인 detector confidence입니다. |
-| classificationConfidence | 0 이상 1 이하인 classifier confidence입니다. |
+| classificationConfidence | 키는 필수이고 값은 nullable인 classifier confidence입니다. |
 | bbox | 이미지 픽셀 기준의 필수 x, y, width, height 사각형입니다. |
 | bbox.x, bbox.y | 좌상단 원점을 사용하는 비음수 픽셀 좌표입니다. |
 | bbox.width, bbox.height | 양의 픽셀 크기입니다. |
 
 구조 검증 예시 classCode는 `MAGPIE`, `SPARROW`, `WILD_BOAR`, `WATER_DEER`, `RODENT`, `UNKNOWN`입니다. 이 목록은 실제 운영 대상 클래스나 위험 점수를 확정하지 않습니다.
+
+`classificationConfidence`는 detector+classifier pipeline에서만 제공됩니다.
+`classifierVersion`이 null이면 `classificationConfidence`도 null입니다.
+`classifierVersion`이 존재하면 `classificationConfidence`는 0 이상 1 이하의 값이어야 합니다.
 
 ## Backend-owned decisions
 
