@@ -36,10 +36,10 @@ AI Server, 실제 모델, MQTT/GPIO 실행 코드, State Machine/cooldown, ROI �
 ```bash
 docker compose -f infra/docker-compose.yml up -d postgres
 cd backend-server
-./gradlew bootRun
+SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
 
-기본 로컬 PostgreSQL database, username, password는 모두 `animalguard`이며 volume은 `animalguard-postgres-data`입니다. 기존 로컬 기본값의 테스트 데이터는 자동 이전되지 않으므로 필요한 경우 기존 volume을 수동으로 정리한 뒤 새 환경을 시작해야 합니다.
+`local` 프로필에서만 Hibernate schema update를 기본 사용합니다. 기본 로컬 PostgreSQL database, username, password는 모두 `animalguard`이며 volume은 `animalguard-postgres-data`입니다. 기존 로컬 기본값의 테스트 데이터는 자동 이전되지 않으므로 필요한 경우 기존 volume을 수동으로 정리한 뒤 새 환경을 시작해야 합니다.
 
 ```bash
 cd backend-server

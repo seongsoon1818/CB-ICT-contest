@@ -64,10 +64,10 @@ public class RiskDecisionEngine {
     }
 
     RiskLevel toRiskLevel(int score) {
-        if (score < 40) {
+        if (score < properties.mediumThreshold()) {
             return RiskLevel.LOW;
         }
-        if (score < 70) {
+        if (score < properties.highThreshold()) {
             return RiskLevel.MEDIUM;
         }
         return RiskLevel.HIGH;

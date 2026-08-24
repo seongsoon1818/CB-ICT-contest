@@ -14,8 +14,12 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.Arrays;
+import java.util.stream.IntStream;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
+import static java.util.stream.Collectors.joining;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -198,6 +202,30 @@ class DetectionEventControllerIntegrationTest {
         assertBadRequest(payload);
     }
 
+    @Test
+    void rejectsDuplicateDetectionIdsWithinEvent() throws Exception {
+        assertBadRequest(payloadWithDetectionIds(EVENT_ID, "det-001", "det-001"));
+
+        assertThat(detectionEventRepository.count()).isZero();
+        assertThat(animalDetectionRepository.count()).isZero();
+        assertThat(riskDecisionRepository.count()).isZero();
+        assertThat(deviceCommandRepository.count()).isZero();
+    }
+
+    @Test
+    void rejectsMoreThanOneHundredDetections() throws Exception {
+        String[] detectionIds = IntStream.rangeClosed(1, 101)
+                .mapToObj(index -> "det-%03d".formatted(index))
+                .toArray(String[]::new);
+
+        assertBadRequest(payloadWithDetectionIds(EVENT_ID, detectionIds));
+
+        assertThat(detectionEventRepository.count()).isZero();
+        assertThat(animalDetectionRepository.count()).isZero();
+        assertThat(riskDecisionRepository.count()).isZero();
+        assertThat(deviceCommandRepository.count()).isZero();
+    }
+
     private void assertBadRequest(String payload) throws Exception {
         mockMvc.perform(post("/api/v1/detection/events")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -267,5 +295,31 @@ class DetectionEventControllerIntegrationTest {
                   "model": {"detectorVersion": "animal-detector-v1", "classifierVersion": null}
                 }
                 """.formatted(eventId);
+    }
+
+    private String payloadWithDetectionIds(String eventId, String... detectionIds) {
+        String detections = Arrays.stream(detectionIds)
+                .map(detectionId -> """
+                        {
+                          "detectionId": "%s",
+                          "trackId": null,
+                          "classCode": "UNKNOWN",
+                          "detectionConfidence": 0.50,
+                          "classificationConfidence": 0.50,
+                          "bbox": {"x": 10, "y": 20, "width": 30, "height": 40}
+                        }
+                        """.formatted(detectionId))
+                .collect(joining(","));
+
+        return """
+                {
+                  "eventId": "%s",
+                  "cameraId": "cam-001",
+                  "capturedAt": "2026-08-24T08:00:00Z",
+                  "image": {"width": 1280, "height": 720},
+                  "model": {"detectorVersion": "animal-detector-v1", "classifierVersion": null},
+                  "detections": [%s]
+                }
+                """.formatted(eventId, detections);
     }
 }

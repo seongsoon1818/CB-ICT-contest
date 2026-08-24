@@ -17,7 +17,9 @@ class RiskDecisionEngineTest {
             3,
             20,
             0.90,
-            20
+            20,
+            40,
+            70
     ));
 
     @Test
@@ -26,6 +28,24 @@ class RiskDecisionEngineTest {
         assertThat(engine.toRiskLevel(40)).isEqualTo(RiskLevel.MEDIUM);
         assertThat(engine.toRiskLevel(69)).isEqualTo(RiskLevel.MEDIUM);
         assertThat(engine.toRiskLevel(70)).isEqualTo(RiskLevel.HIGH);
+    }
+
+    @Test
+    void usesConfiguredRiskLevelBoundaries() {
+        RiskDecisionEngine customBoundaryEngine = new RiskDecisionEngine(new RiskProperties(
+                Map.of("UNKNOWN", 0),
+                3,
+                20,
+                0.90,
+                20,
+                25,
+                80
+        ));
+
+        assertThat(customBoundaryEngine.toRiskLevel(24)).isEqualTo(RiskLevel.LOW);
+        assertThat(customBoundaryEngine.toRiskLevel(25)).isEqualTo(RiskLevel.MEDIUM);
+        assertThat(customBoundaryEngine.toRiskLevel(79)).isEqualTo(RiskLevel.MEDIUM);
+        assertThat(customBoundaryEngine.toRiskLevel(80)).isEqualTo(RiskLevel.HIGH);
     }
 
     @Test

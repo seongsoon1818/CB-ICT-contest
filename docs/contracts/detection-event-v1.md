@@ -54,8 +54,8 @@ JSON Schema: `detection-event-v1.schema.json`
 | model | 필수 모델 메타데이터 객체입니다. |
 | model.detectorVersion | 필수 detector 모델 버전입니다. |
 | model.classifierVersion | nullable classifier 모델 버전입니다. detector만 사용하면 null입니다. |
-| detections | 0개 이상의 유해동물 탐지 배열입니다. 결과가 없으면 `detections: []`입니다. |
-| detectionId | 이 이벤트 안에서 사용하는 탐지 식별자입니다. |
+| detections | 0개 이상, 최대 100개의 유해동물 탐지 배열입니다. 결과가 없으면 `detections: []`입니다. |
+| detectionId | 이벤트 안에서 고유해야 하는 탐지 식별자입니다. |
 | trackId | MVP에서 nullable인 비음수 추적 ID입니다. |
 | classCode | 대문자·숫자·underscore 코드입니다. 알 수 없는 대상은 `UNKNOWN`입니다. |
 | detectionConfidence | 0 이상 1 이하인 detector confidence입니다. |
@@ -70,6 +70,7 @@ JSON Schema: `detection-event-v1.schema.json`
 
 - AI는 `insideField`를 보내지 않으며 현재 Backend도 ROI를 평가하지 않습니다.
 - 이벤트별 class score는 탐지들의 설정 점수 중 최대값을 한 번만 적용합니다.
+- 이벤트 하나에는 탐지를 최대 100개까지 포함할 수 있고 detectionId는 이벤트 안에서 중복될 수 없습니다.
 - 설정에 없는 classCode는 0점이며 `UNKNOWN`의 기본 점수도 0점입니다.
 - trackId는 nullable이고 단일 이미지 MVP에서 체류 시간을 계산하지 않습니다.
 - 이벤트에는 메타데이터와 탐지 결과만 포함하며 모델 파일, 이미지 바이너리, Base64 이미지를 넣지 않습니다.

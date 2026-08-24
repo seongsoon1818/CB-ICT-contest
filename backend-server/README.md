@@ -12,7 +12,7 @@ POST /api/v1/detection/events
 
 ## 위험도 설정
 
-`application.yml`의 `animalguard.risk`에서 class score, 탐지 수 threshold와 점수, confidence threshold와 점수를 설정합니다. 운영 기본 class score는 현재 `MAGPIE: 30`, `UNKNOWN: 0`만 정의하며 다른 유해동물의 운영 점수는 확정하지 않았습니다.
+`application.yml`의 `animalguard.risk`에서 class score, 탐지 수 threshold와 점수, confidence threshold와 점수, LOW/MEDIUM/HIGH 경계를 설정합니다. 설정 범위를 벗어난 값이나 역전된 위험도 경계는 애플리케이션 시작 시 거부됩니다. 운영 기본 class score는 현재 `MAGPIE: 30`, `UNKNOWN: 0`만 정의하며 다른 유해동물의 운영 점수는 확정하지 않았습니다.
 
 ## 로컬 실행
 
@@ -21,10 +21,16 @@ POST /api/v1/detection/events
 ```bash
 docker compose -f infra/docker-compose.yml up -d postgres
 cd backend-server
-./gradlew bootRun
+SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
 
-기본 database, username, password는 `animalguard`입니다. 테스트는 외부 PostgreSQL 없이 H2의 `animalguard` 메모리 데이터베이스를 사용합니다.
+`local` 프로필에서만 Hibernate schema update를 기본 사용합니다. 기본 database, username, password는 `animalguard`입니다. 테스트는 외부 PostgreSQL 없이 H2의 `animalguard` 메모리 데이터베이스를 사용합니다.
+
+기본 프로필은 기존 스키마를 변경하지 않고 `ddl-auto=validate`로 검증합니다. 기존 non-local PostgreSQL에는 애플리케이션 시작 전에 다음 SQL을 한 번 수동 적용해 이벤트 내 `detectionId` 고유성 제약을 준비합니다. 환경별 PostgreSQL DSN을 `POSTGRES_DSN`에 지정하며, 중복 데이터나 같은 이름의 제약이 이미 있으면 SQL이 실패하므로 먼저 스키마와 데이터를 확인해야 합니다.
+
+```bash
+psql "$POSTGRES_DSN" -f sql/animal-detections-unique-constraint.sql
+```
 
 ```bash
 ./gradlew test

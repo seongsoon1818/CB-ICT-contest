@@ -11,7 +11,7 @@ spring:
   jpa:
     open-in-view: false
     hibernate:
-      ddl-auto: ${DDL_AUTO:update}
+      ddl-auto: ${DDL_AUTO:validate}
     properties:
       hibernate:
         format_sql: true
@@ -28,3 +28,5 @@ animalguard:
     count-score: 20
     confidence-threshold: 0.90
     confidence-score: 20
+    medium-threshold: 40
+    high-threshold: 70

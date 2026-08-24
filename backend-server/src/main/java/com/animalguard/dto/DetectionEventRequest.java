@@ -1,6 +1,7 @@
 package com.animalguard.dto;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
@@ -11,7 +12,10 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 public record DetectionEventRequest(
         @NotBlank
@@ -21,8 +25,24 @@ public record DetectionEventRequest(
         @NotNull Instant capturedAt,
         @NotNull @Valid Image image,
         @NotNull @Valid Model model,
-        @NotNull List<@NotNull @Valid Detection> detections
+        @NotNull @Size(max = MAX_DETECTIONS_PER_EVENT) List<@NotNull @Valid Detection> detections
 ) {
+
+    public static final int MAX_DETECTIONS_PER_EVENT = 100;
+
+    @AssertTrue(message = "detectionId must be unique within an event")
+    public boolean isDetectionIdsUnique() {
+        if (detections == null) {
+            return true;
+        }
+
+        Set<String> detectionIds = new HashSet<>();
+        return detections.stream()
+                .filter(Objects::nonNull)
+                .map(Detection::detectionId)
+                .filter(Objects::nonNull)
+                .allMatch(detectionIds::add);
+    }
 
     public record Image(
             @NotNull @Positive Integer width,

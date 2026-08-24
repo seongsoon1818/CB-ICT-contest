@@ -75,6 +75,8 @@
     },
     "detections": {
       "type": "array",
+      "maxItems": 100,
+      "description": "At most 100 detections. Each detectionId must be unique within the event.",
       "items": {
         "$ref": "#/$defs/animalDetection"
       }
