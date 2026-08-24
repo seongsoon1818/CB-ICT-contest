@@ -83,6 +83,53 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "required": [
+              "classifierVersion"
+            ],
+            "properties": {
+              "classifierVersion": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detections": {
+            "items": {
+              "properties": {
+                "classificationConfidence": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "detections": {
+            "items": {
+              "properties": {
+                "classificationConfidence": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "animalDetection": {
       "type": "object",
@@ -122,7 +169,10 @@
           "maximum": 1
         },
         "classificationConfidence": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0,
           "maximum": 1
         },

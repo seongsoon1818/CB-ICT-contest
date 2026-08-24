@@ -34,4 +34,6 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 
 로컬 개발 DB 기본 이름과 volume 이름이 변경되므로 기존 테스트 데이터는 자동 이전되지 않습니다. 필요한 경우 기존 로컬 volume을 수동으로 정리한 뒤 새 환경을 시작해야 합니다.
 
+`classification_confidence` nullable 변경 전에 생성한 `animalguard-postgres-data` volume은 Hibernate schema update가 기존 `NOT NULL` 제약을 제거하지 않으므로, 필요한 데이터를 백업한 뒤 volume을 재생성해야 합니다.
+
 이번 단계에서는 AI Server, 실제 모델, MQTT/GPIO 실행 코드, State Machine/cooldown, ROI 계산, DB migration framework를 구현하지 않습니다.

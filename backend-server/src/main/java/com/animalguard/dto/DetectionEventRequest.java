@@ -61,6 +61,19 @@ public record DetectionEventRequest(
                         && (long) bbox.y() + bbox.height() <= image.height());
     }
 
+    @AssertTrue(message = "classificationConfidence must match classifierVersion")
+    public boolean isClassificationConfidenceConsistent() {
+        if (model == null || detections == null) {
+            return true;
+        }
+
+        boolean classifierPresent = model.classifierVersion() != null;
+        return detections.stream()
+                .filter(Objects::nonNull)
+                .allMatch(detection -> classifierPresent
+                        == (detection.classificationConfidence() != null));
+    }
+
     public record Image(
             @NotNull @Positive Integer width,
             @NotNull @Positive Integer height
@@ -79,7 +92,8 @@ public record DetectionEventRequest(
             @JsonProperty(required = true) @PositiveOrZero Long trackId,
             @NotBlank @Size(max = 64) @Pattern(regexp = "^[A-Z][A-Z0-9_]*$") String classCode,
             @NotNull @DecimalMin("0.0") @DecimalMax("1.0") Double detectionConfidence,
-            @NotNull @DecimalMin("0.0") @DecimalMax("1.0") Double classificationConfidence,
+            @JsonProperty(required = true)
+            @DecimalMin("0.0") @DecimalMax("1.0") Double classificationConfidence,
             @NotNull @Valid Bbox bbox
     ) {
     }

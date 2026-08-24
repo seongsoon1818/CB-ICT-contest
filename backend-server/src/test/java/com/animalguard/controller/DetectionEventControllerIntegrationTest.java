@@ -73,6 +73,7 @@ class DetectionEventControllerIntegrationTest {
                 .isEqualTo("animal-detector-v1");
         assertThat(detectionEventRepository.findAll().get(0).getClassifierVersion()).isNull();
         assertThat(animalDetectionRepository.findAll().get(0).getClassCode()).isEqualTo("MAGPIE");
+        assertThat(animalDetectionRepository.findAll().get(0).getClassificationConfidence()).isNull();
     }
 
     @Test
@@ -143,6 +144,30 @@ class DetectionEventControllerIntegrationTest {
     void rejectsMissingClassifierVersionKey() throws Exception {
         String payload = oneDetectionPayload(EVENT_ID)
                 .replace(", \"classifierVersion\": null", "");
+
+        assertBadRequest(payload);
+    }
+
+    @Test
+    void rejectsMissingClassificationConfidenceKey() throws Exception {
+        String payload = oneDetectionPayload(EVENT_ID)
+                .replace("\"classificationConfidence\": null,", "");
+
+        assertBadRequest(payload);
+    }
+
+    @Test
+    void rejectsNullClassificationConfidenceWhenClassifierExists() throws Exception {
+        String payload = oneDetectionPayload(EVENT_ID)
+                .replace("\"classifierVersion\": null", "\"classifierVersion\": \"animal-classifier-v1\"");
+
+        assertBadRequest(payload);
+    }
+
+    @Test
+    void rejectsClassificationConfidenceWhenClassifierIsAbsent() throws Exception {
+        String payload = oneDetectionPayload(EVENT_ID)
+                .replace("\"classificationConfidence\": null", "\"classificationConfidence\": 0.92");
 
         assertBadRequest(payload);
     }
@@ -286,7 +311,7 @@ class DetectionEventControllerIntegrationTest {
                       "trackId": null,
                       "classCode": "MAGPIE",
                       "detectionConfidence": 0.95,
-                      "classificationConfidence": 0.92,
+                      "classificationConfidence": null,
                       "bbox": {"x": 100, "y": 200, "width": 50, "height": 60}
                     }
                   ]
@@ -344,7 +369,7 @@ class DetectionEventControllerIntegrationTest {
                           "trackId": null,
                           "classCode": "UNKNOWN",
                           "detectionConfidence": 0.50,
-                          "classificationConfidence": 0.50,
+                          "classificationConfidence": null,
                           "bbox": {"x": 10, "y": 20, "width": 30, "height": 40}
                         }
                         """.formatted(detectionId))
