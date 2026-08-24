@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 
+from app.backend_client import BackendClient, BackendConflict, BackendUnavailable
 from app.inference import DETECTOR_VERSION, InvalidJpegError, MockInference, decode_jpeg
 from app.schemas import DetectionEvent, ImageInfo, ModelInfo
 from app.settings import Settings
@@ -25,6 +26,9 @@ def create_app(
 ) -> FastAPI:
     app_settings = settings or Settings.from_env()
     inference = MockInference(app_settings.mock_result)
+    configured_backend_client = backend_client
+    if configured_backend_client is None and app_settings.backend_base_url is not None:
+        configured_backend_client = BackendClient(app_settings.backend_base_url)
     application = FastAPI(title="AnimalGuard AI Server")
 
     @application.get("/health/live")
@@ -91,12 +95,23 @@ def create_app(
             ),
             detections=inference.analyze(width, height),
         )
-        if backend_client is None:
+        if configured_backend_client is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Backend client is not configured",
             )
-        return await backend_client.send_detection_event(event)
+        try:
+            return await configured_backend_client.send_detection_event(event)
+        except BackendConflict as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Backend reported a duplicate event",
+            ) from error
+        except BackendUnavailable as error:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Backend request failed",
+            ) from error
 
     return application
 

@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from app.backend_client import BackendConflict, BackendUnavailable
 from app.main import MAX_JPEG_BYTES, create_app
 from app.schemas import DetectionEvent
 from app.settings import Settings
@@ -23,6 +24,16 @@ class RecordingBackendClient:
             "riskScore": 50,
             "riskLevel": "MEDIUM",
         }
+
+
+class FailingBackendClient:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    async def send_detection_event(
+        self, event: DetectionEvent
+    ) -> dict[str, Any]:
+        raise self._error
 
 
 def make_jpeg(width: int = 1280, height: int = 720) -> bytes:
@@ -170,3 +181,28 @@ def test_timezone_naive_captured_at_returns_422() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_backend_failure_returns_502_without_internal_details() -> None:
+    app = create_app(
+        Settings(backend_base_url="http://backend.internal"),
+        backend_client=FailingBackendClient(BackendUnavailable()),
+    )
+    client = TestClient(app)
+
+    response = analyze(client, make_jpeg())
+
+    assert response.status_code == 502
+    assert "backend.internal" not in response.text
+
+
+def test_backend_conflict_returns_409() -> None:
+    app = create_app(
+        Settings(backend_base_url="http://backend.example"),
+        backend_client=FailingBackendClient(BackendConflict()),
+    )
+    client = TestClient(app)
+
+    response = analyze(client, make_jpeg())
+
+    assert response.status_code == 409
