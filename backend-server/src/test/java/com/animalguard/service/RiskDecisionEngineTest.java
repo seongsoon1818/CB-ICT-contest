@@ -102,19 +102,39 @@ class RiskDecisionEngineTest {
     }
 
     @Test
-    void appliesConfidenceScoreWhenBothConfidencesMeetThreshold() {
+    void appliesConfidenceScoreForDetectorOnlyDetection() {
         RiskDecisionEngine.RiskAssessment assessment = engine.decide(
-                List.of(detection("SPARROW", 0.90, 0.91))
+                List.of(detection("SPARROW", 0.95, null))
         );
 
         assertThat(assessment.score()).isEqualTo(20);
         assertThat(assessment.reason()).contains("CONFIDENCE_GE_0_9 +20");
     }
 
+    @Test
+    void appliesConfidenceScoreWhenClassifierConfidencesMeetThreshold() {
+        RiskDecisionEngine.RiskAssessment assessment = engine.decide(
+                List.of(detection("SPARROW", 0.95, 0.92))
+        );
+
+        assertThat(assessment.score()).isEqualTo(20);
+        assertThat(assessment.reason()).contains("CONFIDENCE_GE_0_9 +20");
+    }
+
+    @Test
+    void doesNotApplyConfidenceScoreWhenClassificationConfidenceIsBelowThreshold() {
+        RiskDecisionEngine.RiskAssessment assessment = engine.decide(
+                List.of(detection("SPARROW", 0.95, 0.50))
+        );
+
+        assertThat(assessment.score()).isZero();
+        assertThat(assessment.reason()).doesNotContain("CONFIDENCE_GE_0_9");
+    }
+
     private DetectionEventRequest.Detection detection(
             String classCode,
             double detectionConfidence,
-            double classificationConfidence
+            Double classificationConfidence
     ) {
         return new DetectionEventRequest.Detection(
                 "det-001",
