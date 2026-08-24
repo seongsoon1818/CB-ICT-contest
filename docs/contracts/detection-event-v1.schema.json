@@ -83,6 +83,53 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "model"
+        ],
+        "properties": {
+          "model": {
+            "required": [
+              "classifierVersion"
+            ],
+            "properties": {
+              "classifierVersion": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "detections": {
+            "items": {
+              "properties": {
+                "classificationConfidence": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "detections": {
+            "items": {
+              "properties": {
+                "classificationConfidence": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "animalDetection": {
       "type": "object",
