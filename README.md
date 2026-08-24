@@ -41,6 +41,8 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 
 `local` 프로필에서만 로컬 datasource 기본값과 Hibernate schema update를 사용합니다. 기본 로컬 PostgreSQL database, username, password는 모두 `animalguard`이며 volume은 `animalguard-postgres-data`입니다. 기존 로컬 기본값의 테스트 데이터는 자동 이전되지 않으므로 필요한 경우 기존 volume을 수동으로 정리한 뒤 새 환경을 시작해야 합니다.
 
+`classification_confidence` nullable 변경 전에 생성한 `animalguard-postgres-data` volume은 Hibernate schema update가 기존 `NOT NULL` 제약을 제거하지 않으므로, 필요한 데이터를 백업한 뒤 volume을 재생성해야 합니다.
+
 이번 단계에는 baseline·rename·backfill migration이 없으므로 non-local 배포를 지원하지 않습니다. non-local 환경은 migration 수단을 마련한 뒤 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`를 명시해야 합니다.
 
 ```bash

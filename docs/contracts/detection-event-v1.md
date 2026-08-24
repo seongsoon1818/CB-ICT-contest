@@ -74,6 +74,7 @@ JSON Schema: `detection-event-v1.schema.json`
 
 - AI는 `insideField`를 보내지 않으며 현재 Backend도 ROI를 평가하지 않습니다.
 - 이벤트별 class score는 탐지들의 설정 점수 중 최대값을 한 번만 적용합니다.
+- confidence score는 detector-only에서는 detectionConfidence가 설정 threshold 이상인 탐지가 있으면 한 번 적용하고, detector+classifier에서는 동일 탐지의 detectionConfidence와 classificationConfidence가 모두 threshold 이상일 때 한 번 적용합니다.
 - 이벤트 하나에는 탐지를 최대 100개까지 포함할 수 있고 detectionId는 이벤트 안에서 중복될 수 없습니다.
 - 설정에 없는 classCode는 0점이며 `UNKNOWN`의 기본 점수도 0점입니다.
 - trackId는 nullable이고 단일 이미지 MVP에서 체류 시간을 계산하지 않습니다.
@@ -94,7 +95,7 @@ JSON Schema: `detection-event-v1.schema.json`
 
 ## Compatibility and validation
 
-Detection Event v1은 현재 producer가 없으므로 직접 일반화했습니다. 구버전 `birds`와 `speciesCode` payload는 지원하지 않으며 별도의 v2나 호환 adapter를 제공하지 않습니다. JSON Schema는 필수 구조와 primitive 제약의 machine-readable source이며 producer와 consumer는 v1 변경 시 함께 갱신해야 합니다.
+Detection Event v1은 현재 producer가 없으므로 직접 일반화했습니다. 구버전 `birds`와 `speciesCode` payload는 지원하지 않으며 별도의 v2나 호환 adapter를 제공하지 않습니다. JSON Schema는 필수 구조와 primitive 제약뿐 아니라 classifierVersion과 classificationConfidence의 연동 규칙을 표현하는 machine-readable source이며 producer와 consumer는 v1 변경 시 함께 갱신해야 합니다.
 
 ## Response contract
 
