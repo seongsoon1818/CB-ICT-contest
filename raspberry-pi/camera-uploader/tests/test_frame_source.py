@@ -38,8 +38,6 @@ def test_picamera2_missing_dependency_has_clear_startup_error(
 def test_picamera2_is_initialized_once_captures_jpeg_and_closes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    instances: list[FakePicamera2] = []
-
     class FakePicamera2:
         def __init__(self) -> None:
             self.started = False
@@ -67,6 +65,7 @@ def test_picamera2_is_initialized_once_captures_jpeg_and_closes(
         def close(self) -> None:
             self.closed = True
 
+    instances: list[FakePicamera2] = []
     monkeypatch.setitem(
         sys.modules,
         "picamera2",

@@ -41,6 +41,11 @@ class RecordingUploader:
         self.closed = True
 
 
+class ExplodingUploader(RecordingUploader):
+    def upload(self, frame: bytes, captured_at: datetime) -> None:
+        raise ValueError("unexpected upload bug")
+
+
 def test_loop_waits_after_each_completed_upload_and_captures_a_new_frame() -> None:
     events: list[object] = []
     source = RecordingSource(events, [b"failed-frame", b"new-frame"])
@@ -89,6 +94,23 @@ def test_service_closes_source_and_uploader_on_shutdown() -> None:
         stop_event=stop_event,
         wait=lambda seconds: True,
     )
+
+    assert source.closed
+    assert uploader.closed
+
+
+def test_unexpected_upload_error_escapes_after_resources_are_closed() -> None:
+    events: list[object] = []
+    source = RecordingSource(events, [b"frame"])
+    uploader = ExplodingUploader(events)
+
+    with pytest.raises(ValueError, match="unexpected upload bug"):
+        run_service(
+            Settings("http://ai.example", "cam-001"),
+            source=source,
+            uploader=uploader,  # type: ignore[arg-type]
+            wait=lambda seconds: True,
+        )
 
     assert source.closed
     assert uploader.closed

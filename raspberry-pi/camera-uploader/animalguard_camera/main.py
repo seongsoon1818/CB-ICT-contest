@@ -32,13 +32,14 @@ def run_capture_loop(
         cycle_started_at = monotonic()
         try:
             frame = source.capture_jpeg()
-            captured_at = now()
-            uploader.upload(frame, captured_at)
         except Exception as error:
             LOGGER.warning(
                 "Frame capture failed; continuing with the next cycle (%s)",
                 type(error).__name__,
             )
+        else:
+            captured_at = now()
+            uploader.upload(frame, captured_at)
 
         remaining = interval_seconds - (monotonic() - cycle_started_at)
         if remaining > 0 and wait_for_stop(remaining):
