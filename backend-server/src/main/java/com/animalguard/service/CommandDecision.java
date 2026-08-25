@@ -15,22 +15,19 @@ public record CommandDecision(
         Objects.requireNonNull(outcome, "outcome must not be null");
         blockers = List.copyOf(Objects.requireNonNull(blockers, "blockers must not be null"));
 
-        switch (outcome) {
-            case NOT_REQUESTED -> {
-                if (commandId != null || !blockers.isEmpty()) {
-                    throw new IllegalArgumentException("NOT_REQUESTED must not have commandId or blockers");
-                }
-            }
-            case CREATED -> {
-                if (commandId == null || commandId.isBlank() || !blockers.isEmpty()) {
-                    throw new IllegalArgumentException("CREATED requires commandId and must not have blockers");
-                }
-            }
-            case SUPPRESSED -> {
-                if (commandId != null || blockers.isEmpty()) {
-                    throw new IllegalArgumentException("SUPPRESSED requires blockers and must not have commandId");
-                }
-            }
+        String validationError = switch (outcome) {
+            case NOT_REQUESTED -> commandId == null && blockers.isEmpty()
+                    ? null
+                    : "NOT_REQUESTED must not have commandId or blockers";
+            case CREATED -> commandId != null && !commandId.isBlank() && blockers.isEmpty()
+                    ? null
+                    : "CREATED requires commandId and must not have blockers";
+            case SUPPRESSED -> commandId == null && !blockers.isEmpty()
+                    ? null
+                    : "SUPPRESSED requires blockers and must not have commandId";
+        };
+        if (validationError != null) {
+            throw new IllegalArgumentException(validationError);
         }
     }
 
