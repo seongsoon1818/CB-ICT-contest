@@ -54,13 +54,19 @@ def main() -> int:
         while not stop_event.wait(settings.status_interval_seconds):
             _publish_status_safely(client, settings.device_id, "ONLINE")
     finally:
-        if client.is_connected():
-            info = _publish_status_safely(client, settings.device_id, "OFFLINE")
-            if info is not None:
-                info.wait_for_publish(timeout=5)
-            client.disconnect()
-        client.loop_stop()
-        store.close()
+        try:
+            if client.is_connected():
+                try:
+                    info = _publish_status_safely(
+                        client, settings.device_id, "OFFLINE"
+                    )
+                    if info is not None:
+                        _wait_for_status_publish(info)
+                finally:
+                    client.disconnect()
+        finally:
+            client.loop_stop()
+            store.close()
     return 0
 
 
@@ -145,6 +151,13 @@ def _publish_status_safely(
     except RuntimeError as exc:
         LOGGER.warning("MQTT status 발행 실패, 재연결 대기: %s", exc)
         return None
+
+
+def _wait_for_status_publish(info: mqtt.MQTTMessageInfo) -> None:
+    try:
+        info.wait_for_publish(timeout=5)
+    except (RuntimeError, ValueError) as exc:
+        LOGGER.warning("MQTT status 발행 확인 실패, 종료 계속: %s", exc)
 
 
 def _publish_json(

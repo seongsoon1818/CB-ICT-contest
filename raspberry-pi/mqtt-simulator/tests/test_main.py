@@ -164,3 +164,75 @@ def test_main_survives_transient_heartbeat_publish_failure(monkeypatch, tmp_path
     assert main_module.main() == 0
     assert stop_event.wait_count == 2
     assert client.loop_stopped is True
+
+
+def test_main_cleans_up_when_offline_publish_wait_fails(monkeypatch, tmp_path):
+    class StopEvent:
+        def wait(self, timeout):
+            return True
+
+        def set(self):
+            pass
+
+    class PublishInfo:
+        rc = mqtt.MQTT_ERR_SUCCESS
+
+        def wait_for_publish(self, timeout):
+            raise RuntimeError("connection lost while waiting")
+
+    class Client:
+        def __init__(self):
+            self.disconnected = False
+            self.loop_stopped = False
+
+        def connect(self, host, port, keepalive):
+            return mqtt.MQTT_ERR_SUCCESS
+
+        def loop_start(self):
+            pass
+
+        def publish(self, topic, payload, qos, retain):
+            return PublishInfo()
+
+        def is_connected(self):
+            return True
+
+        def disconnect(self):
+            self.disconnected = True
+
+        def loop_stop(self):
+            self.loop_stopped = True
+
+    class Store:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    settings = Settings(
+        host="127.0.0.1",
+        port=1883,
+        device_id="pi-001",
+        keepalive_seconds=30,
+        processed_command_db=tmp_path / "commands.db",
+        status_interval_seconds=30,
+    )
+    client = Client()
+    store = Store()
+    monkeypatch.setattr(
+        main_module.Settings,
+        "from_env",
+        classmethod(lambda cls: settings),
+    )
+    monkeypatch.setattr(main_module, "Event", StopEvent)
+    monkeypatch.setattr(main_module, "DedupStore", lambda path: store)
+    monkeypatch.setattr(
+        main_module, "_build_client", lambda current_settings, handler: client
+    )
+    monkeypatch.setattr(main_module.signal, "signal", lambda signum, handler: None)
+
+    assert main_module.main() == 0
+    assert client.disconnected is True
+    assert client.loop_stopped is True
+    assert store.closed is True
