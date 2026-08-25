@@ -21,29 +21,62 @@ deviceId is the stable identifier in the topic and payload. Topic path values mu
 
 ## Command payload
 
+Automatic example:
+
 ~~~json
 {
-  "commandId": "cmd-a272f7cc",
+  "commandId": "command-001",
   "eventId": "15356786-9588-4db4-a0fe-f8acd6300868",
   "deviceId": "pi-001",
-  "command": "DETERRENT_LEVEL_2",
-  "durationMs": 5000,
-  "issuedAt": "2026-08-21T07:00:03Z",
-  "expiresAt": "2026-08-21T07:00:13Z",
-  "reason": "CLASS_SCORE_MAGPIE +30, DETECTION_COUNT_GE_3 +20"
+  "source": "AUTOMATIC",
+  "command": "SOUND_ALERT",
+  "durationMs": 2000,
+  "issuedAt": "2026-08-26T00:00:00Z",
+  "expiresAt": "2026-08-26T00:00:10Z",
+  "reason": "FIRST_ANIMAL_DETECTION"
+}
+~~~
+
+Manual example:
+
+~~~json
+{
+  "commandId": "command-002",
+  "eventId": null,
+  "deviceId": "pi-001",
+  "source": "MANUAL",
+  "command": "ROTATE_CAMERA_LEFT",
+  "durationMs": null,
+  "issuedAt": "2026-08-26T00:00:00Z",
+  "expiresAt": "2026-08-26T00:00:10Z",
+  "reason": "USER_REQUEST"
 }
 ~~~
 
 Rules:
 
 - commandId is a unique, durable idempotency key. The same commandId must not cause a second physical actuation.
-- eventId is the Detection Event UUID that caused the command.
-- command is semantic, such as DETERRENT_LEVEL_1, DETERRENT_LEVEL_2, DETERRENT_LEVEL_3, or STOP_DETERRENT. It is not a GPIO instruction.
-- durationMs is a positive duration in milliseconds.
+- source is either AUTOMATIC or MANUAL. It is stored independently and is never inferred from command because STOP_DETERRENT supports both sources.
+- eventId is a required Detection Event UUID for AUTOMATIC and must be null for MANUAL. A manual command never creates or references a fake Detection Event.
+- command must be one of ROTATE_CAMERA_LEFT, ROTATE_CAMERA_RIGHT, SOUND_ALERT, DETERRENT_FULL, or STOP_DETERRENT. It is a semantic device action, not a GPIO instruction.
+- durationMs is a positive integer for SOUND_ALERT and DETERRENT_FULL. It must be null for ROTATE_CAMERA_LEFT, ROTATE_CAMERA_RIGHT, and STOP_DETERRENT; callers must not invent a duration for a duration-free command.
 - issuedAt and expiresAt use ISO 8601 / RFC 3339 date-time with an explicit timezone.
 - expiresAt must be later than issuedAt. Raspberry Pi must not execute a command after expiresAt.
-- reason is the detailed, auditable Backend risk assessment copied from the risk decision. It does not replace the risk decision record.
+- reason is an auditable decision basis, not a device-control parameter. Automatic examples include FIRST_ANIMAL_DETECTION, PERSISTENT_ANIMAL_DETECTION, and ANIMAL_DISAPPEARED; the manual value is USER_REQUEST. Future Backend policy may provide a more detailed risk-decision reason.
 - Command messages use QoS 1 by default and are not retained. A retained command could be executed unexpectedly after reconnect.
+
+Allowed source and command combinations:
+
+| Source | Command | durationMs | Raspberry Pi semantic action |
+| --- | --- | --- | --- |
+| AUTOMATIC | SOUND_ALERT | positive integer | Speaker alert |
+| AUTOMATIC | DETERRENT_FULL | positive integer | Deterrent motor and speaker on |
+| AUTOMATIC | STOP_DETERRENT | null | Deterrent motor and speaker off |
+| MANUAL | ROTATE_CAMERA_LEFT | null | Camera servo 5 degrees left |
+| MANUAL | ROTATE_CAMERA_RIGHT | null | Camera servo 5 degrees right |
+| MANUAL | STOP_DETERRENT | null | Deterrent motor and speaker off |
+
+Animal-specific commands such as DETERRENT_MAGPIE, DETERRENT_BOAR, or DETERRENT_DEER are forbidden. Backend response policy may choose a semantic action from model and observation state in a later phase, but the MQTT vocabulary expresses only actions the Raspberry Pi performs.
 
 ## ACK payload
 
@@ -102,7 +135,7 @@ Failure or expiry can occur before execution:
 - CREATED or PUBLISHED → EXPIRED when the expiry time passes before execution.
 - EXECUTED, FAILED, and EXPIRED are terminal for that command.
 
-Backend first evaluates the Detection Event, risk state machine, device/camera-scoped cooldown, and safety conditions. Only after those checks pass does it persist a command as CREATED. MQTT does not bypass the state machine or cooldown.
+Before dispatch, Backend applies the source-appropriate policy, target mapping, expiry, and safety checks. Automatic commands require a real Detection Event. Manual commands require an authenticated user request and no Detection Event. MQTT itself does not bypass Backend policy.
 
 For the MVP Publisher, `PUBLISHED` means dispatch was authorized and the publish attempt began; it does not prove broker delivery. Backend commits `PUBLISHED` before invoking the MQTT client so an immediate ACK cannot observe a `CREATED` row. An immediate publish failure is recorded as `FAILED`. A process crash after the commit but before or during the MQTT call can leave `PUBLISHED` without delivery; reconciliation for that crash window is a follow-up requirement.
 
@@ -116,3 +149,5 @@ For the MVP Publisher, `PUBLISHED` means dispatch was authorized and the publish
 - Commands are not retained. The retain policy for status and sensor events may be finalized with the broker deployment, but it must not change command idempotency or expiry semantics.
 - ACK, status, and sensor-event timestamps include timezones; Backend stores server receipt times for audit.
 - Authentication, authorization, TLS, and broker ACL configuration are deployment concerns and are not implemented in Phase 0.
+
+STOP_DETERRENT is a safety-stop command. A follow-up Publisher/manual API design must decide whether general actuation blockers such as ACTUATION_DISABLED, RISK_POLICY_UNCONFIRMED, and COOLDOWN_ACTIVE may block STOP. Device target mapping, MQTT transport readiness, commandId, and expiry are still required. This v1 alignment does not bypass the existing preflight or define the final STOP dispatch policy.

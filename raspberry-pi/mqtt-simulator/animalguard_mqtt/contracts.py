@@ -11,6 +11,7 @@ COMMAND_FIELDS = {
     "commandId",
     "eventId",
     "deviceId",
+    "source",
     "command",
     "durationMs",
     "issuedAt",
@@ -18,11 +19,16 @@ COMMAND_FIELDS = {
     "reason",
 }
 SUPPORTED_COMMANDS = {
-    "DETERRENT_LEVEL_1",
-    "DETERRENT_LEVEL_2",
-    "DETERRENT_LEVEL_3",
+    "ROTATE_CAMERA_LEFT",
+    "ROTATE_CAMERA_RIGHT",
+    "SOUND_ALERT",
+    "DETERRENT_FULL",
     "STOP_DETERRENT",
 }
+SUPPORTED_SOURCES = {"AUTOMATIC", "MANUAL"}
+AUTOMATIC_COMMANDS = {"SOUND_ALERT", "DETERRENT_FULL", "STOP_DETERRENT"}
+MANUAL_COMMANDS = {"ROTATE_CAMERA_LEFT", "ROTATE_CAMERA_RIGHT", "STOP_DETERRENT"}
+DURATION_COMMANDS = {"SOUND_ALERT", "DETERRENT_FULL"}
 ACK_TIMESTAMP_FIELDS = {
     "ACKNOWLEDGED": "acknowledgedAt",
     "EXECUTED": "executedAt",
@@ -43,10 +49,11 @@ class UnsupportedCommandError(CommandValidationError):
 @dataclass(frozen=True)
 class Command:
     command_id: str
-    event_id: UUID
+    event_id: UUID | None
     device_id: str
+    source: str
     command: str
-    duration_ms: int
+    duration_ms: int | None
     issued_at: datetime
     expires_at: datetime
     reason: str
@@ -70,17 +77,21 @@ def parse_command(payload: Mapping[str, Any], expected_device_id: str) -> Comman
     if device_id != expected_device_id:
         raise CommandValidationError("deviceId does not match simulator settings")
 
-    event_id_value = _non_empty_string(payload["eventId"], "eventId")
-    try:
-        event_id = UUID(event_id_value)
-    except ValueError as exc:
-        raise CommandValidationError("eventId must be a UUID") from exc
+    source = _non_empty_string(payload["source"], "source")
+    if source not in SUPPORTED_SOURCES:
+        raise CommandValidationError(f"unsupported source: {source}")
 
-    duration_ms = payload["durationMs"]
-    if isinstance(duration_ms, bool) or not isinstance(duration_ms, int):
-        raise CommandValidationError("durationMs must be an integer")
-    if duration_ms <= 0:
-        raise CommandValidationError("durationMs must be positive")
+    event_id: UUID | None
+    if source == "AUTOMATIC":
+        event_id_value = _non_empty_string(payload["eventId"], "eventId")
+        try:
+            event_id = UUID(event_id_value)
+        except ValueError as exc:
+            raise CommandValidationError("eventId must be a UUID") from exc
+    else:
+        if payload["eventId"] is not None:
+            raise CommandValidationError("eventId must be null for MANUAL commands")
+        event_id = None
 
     issued_at = _timezone_datetime(payload["issuedAt"], "issuedAt")
     expires_at = _timezone_datetime(payload["expiresAt"], "expiresAt")
@@ -91,17 +102,40 @@ def parse_command(payload: Mapping[str, Any], expected_device_id: str) -> Comman
     reason = _non_empty_string(payload["reason"], "reason")
     if command not in SUPPORTED_COMMANDS:
         raise UnsupportedCommandError(f"unsupported command: {command}")
+    _validate_source_command(source, command)
+
+    duration_ms = payload["durationMs"]
+    if command in DURATION_COMMANDS:
+        if (
+            isinstance(duration_ms, bool)
+            or not isinstance(duration_ms, int)
+            or duration_ms <= 0
+        ):
+            raise CommandValidationError(
+                f"durationMs must be a positive integer for {command}"
+            )
+    elif duration_ms is not None:
+        raise CommandValidationError(f"durationMs must be null for {command}")
 
     return Command(
         command_id=command_id,
         event_id=event_id,
         device_id=device_id,
+        source=source,
         command=command,
         duration_ms=duration_ms,
         issued_at=issued_at,
         expires_at=expires_at,
         reason=reason,
     )
+
+
+def _validate_source_command(source: str, command: str) -> None:
+    allowed_commands = AUTOMATIC_COMMANDS if source == "AUTOMATIC" else MANUAL_COMMANDS
+    if command not in allowed_commands:
+        raise CommandValidationError(
+            f"command {command} is not allowed for source {source}"
+        )
 
 
 def command_topic(device_id: str) -> str:
