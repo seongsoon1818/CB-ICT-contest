@@ -83,6 +83,8 @@ class DetectionEventControllerIntegrationTest {
                 .andExpect(jsonPath("$.eventId", is(EVENT_ID)))
                 .andExpect(jsonPath("$.riskScore", is(45)))
                 .andExpect(jsonPath("$.riskLevel", is("MEDIUM")))
+                .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")))
+                .andExpect(jsonPath("$.commandBlockers").isEmpty())
                 .andExpect(jsonPath("$.commandId").doesNotExist());
 
         assertThat(detectionEventRepository.count()).isEqualTo(1);
@@ -104,6 +106,8 @@ class DetectionEventControllerIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.riskScore", is(70)))
                 .andExpect(jsonPath("$.riskLevel", is("HIGH")))
+                .andExpect(jsonPath("$.commandOutcome", is("CREATED")))
+                .andExpect(jsonPath("$.commandBlockers").isEmpty())
                 .andExpect(jsonPath("$.commandId").isString());
 
         assertThat(deviceCommandRepository.count()).isEqualTo(1);
@@ -124,6 +128,8 @@ class DetectionEventControllerIntegrationTest {
 
         postHighRiskEvent("25356786-9588-4db4-a0fe-f8acd6300868", "cam-001")
                 .andExpect(jsonPath("$.riskLevel", is("HIGH")))
+                .andExpect(jsonPath("$.commandOutcome", is("SUPPRESSED")))
+                .andExpect(jsonPath("$.commandBlockers[0]", is("COOLDOWN_ACTIVE")))
                 .andExpect(jsonPath("$.commandId").doesNotExist());
 
         assertThat(detectionEventRepository.count()).isEqualTo(2);
@@ -159,6 +165,8 @@ class DetectionEventControllerIntegrationTest {
     void storesHighRiskEventAndDecisionWithoutCommandForUnmappedCamera() throws Exception {
         postHighRiskEvent(EVENT_ID, "cam-unknown")
                 .andExpect(jsonPath("$.riskLevel", is("HIGH")))
+                .andExpect(jsonPath("$.commandOutcome", is("SUPPRESSED")))
+                .andExpect(jsonPath("$.commandBlockers[0]", is("CAMERA_UNMAPPED")))
                 .andExpect(jsonPath("$.commandId").doesNotExist());
 
         assertThat(detectionEventRepository.count()).isEqualTo(1);
@@ -201,6 +209,8 @@ class DetectionEventControllerIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.riskScore", is(0)))
                 .andExpect(jsonPath("$.riskLevel", is("LOW")))
+                .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")))
+                .andExpect(jsonPath("$.commandBlockers").isEmpty())
                 .andExpect(jsonPath("$.commandId").doesNotExist());
 
         assertThat(detectionEventRepository.count()).isEqualTo(1);

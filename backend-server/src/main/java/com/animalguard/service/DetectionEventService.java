@@ -72,24 +72,33 @@ public class DetectionEventService {
                 assessment.reason()
         ));
 
-        String commandId = null;
+        CommandDecision commandDecision = CommandDecision.notRequested();
         if (assessment.level() == RiskLevel.HIGH) {
-            log.info("High risk detection event assessed: eventId={}, cameraId={}, riskScore={}",
-                    request.eventId(), request.cameraId(), assessment.score());
-            commandId = deviceCommandCreationService.createIfAllowed(
-                            event,
-                            request.cameraId(),
-                            assessment.reason()
-                    )
-                    .map(command -> command.getCommandId())
-                    .orElse(null);
+            commandDecision = deviceCommandCreationService.createIfAllowed(
+                    event,
+                    request.cameraId(),
+                    assessment.reason()
+            );
         }
+
+        log.info(
+                "Command decision completed: eventId={}, cameraId={}, riskLevel={}, outcome={}, "
+                        + "commandId={}, blockers={}",
+                event.getEventId(),
+                request.cameraId(),
+                assessment.level(),
+                commandDecision.outcome(),
+                commandDecision.commandId(),
+                commandDecision.blockers()
+        );
 
         return new DetectionEventResponse(
                 event.getEventId(),
                 assessment.score(),
                 assessment.level(),
-                commandId
+                commandDecision.commandId(),
+                commandDecision.outcome(),
+                commandDecision.blockers()
         );
     }
 

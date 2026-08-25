@@ -105,11 +105,21 @@ Detection Event v1은 현재 producer가 없으므로 직접 일반화했습니�
 {
   "eventId": "15356786-9588-4db4-a0fe-f8acd6300868",
   "riskScore": 50,
-  "riskLevel": "MEDIUM"
+  "riskLevel": "MEDIUM",
+  "commandOutcome": "NOT_REQUESTED",
+  "commandBlockers": []
 }
 ~~~
 
-HIGH 위험도에서 DeviceCommand가 생성되면 `commandId`가 포함됩니다. 명령이 생성되지 않으면 `commandId` 필드는 null이 아니라 응답에서 생략됩니다.
+`commandOutcome`과 `commandBlockers`는 모든 정상 응답에 포함됩니다.
+
+| commandOutcome | 의미 | commandId | commandBlockers |
+| --- | --- | --- | --- |
+| `NOT_REQUESTED` | LOW/MEDIUM이라 명령 생성 대상이 아님 | 생략 | 빈 배열 |
+| `CREATED` | DeviceCommand가 DB에 생성됨 | 포함 | 빈 배열 |
+| `SUPPRESSED` | HIGH이지만 운영 조건으로 명령을 생성하지 않음 | 생략 | 비어 있지 않은 배열 |
+
+현재 `SUPPRESSED` blocker는 cameraId 매핑이 없는 `CAMERA_UNMAPPED`와 장치 cooldown이 끝나지 않은 `COOLDOWN_ACTIVE`입니다. HIGH 위험도에서 DeviceCommand가 생성되면 기존 호환 필드인 `commandId`가 포함됩니다. 명령이 생성되지 않으면 `commandId` 필드는 null이 아니라 응답에서 생략됩니다. suppression 판정은 이번 계약에서 응답과 Backend 구조화 로그에만 노출하며 DB에는 저장하지 않습니다.
 
 ## Error contract
 
