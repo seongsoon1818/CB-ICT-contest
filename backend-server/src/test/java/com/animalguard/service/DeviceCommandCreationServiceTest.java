@@ -1,6 +1,8 @@
 package com.animalguard.service;
 
 import com.animalguard.config.DeviceControlProperties;
+import com.animalguard.domain.ActuationBlocker;
+import com.animalguard.domain.CommandOutcome;
 import com.animalguard.domain.DetectionEvent;
 import com.animalguard.domain.DeviceCommand;
 import com.animalguard.domain.DeviceCommandStatus;
@@ -24,6 +26,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import org.mockito.ArgumentCaptor;
 
 @ExtendWith(MockitoExtension.class)
 class DeviceCommandCreationServiceTest {
@@ -50,7 +53,15 @@ class DeviceCommandCreationServiceTest {
 
     @Test
     void suppressesCommandForUnmappedCamera() {
-        assertThat(service.createIfAllowed(event("event-unmapped"), "cam-unknown", "risk reason")).isEmpty();
+        CommandDecision decision = service.createIfAllowed(
+                event("event-unmapped"),
+                "cam-unknown",
+                "risk reason"
+        );
+
+        assertThat(decision.outcome()).isEqualTo(CommandOutcome.SUPPRESSED);
+        assertThat(decision.commandId()).isNull();
+        assertThat(decision.blockers()).containsExactly(ActuationBlocker.CAMERA_UNMAPPED);
 
         verifyNoInteractions(deviceCommandRepository);
     }
@@ -62,12 +73,19 @@ class DeviceCommandCreationServiceTest {
         when(deviceCommandRepository.save(any(DeviceCommand.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        DeviceCommand command = service.createIfAllowed(
+        CommandDecision decision = service.createIfAllowed(
                 event("event-idle"),
                 "cam-001",
                 "CLASS_SCORE_MAGPIE +30"
-        ).orElseThrow();
+        );
 
+        ArgumentCaptor<DeviceCommand> commandCaptor = ArgumentCaptor.forClass(DeviceCommand.class);
+        verify(deviceCommandRepository).save(commandCaptor.capture());
+        DeviceCommand command = commandCaptor.getValue();
+
+        assertThat(decision.outcome()).isEqualTo(CommandOutcome.CREATED);
+        assertThat(decision.commandId()).isEqualTo(command.getCommandId());
+        assertThat(decision.blockers()).isEmpty();
         assertThat(command.getDeviceId()).isEqualTo("pi-001");
         assertThat(command.getCreatedAt()).isEqualTo(NOW);
         assertThat(command.getStatus()).isEqualTo(DeviceCommandStatus.CREATED);
@@ -84,7 +102,15 @@ class DeviceCommandCreationServiceTest {
         when(deviceCommandRepository.findTopByDeviceIdOrderByCreatedAtDesc("pi-001"))
                 .thenReturn(Optional.of(latest));
 
-        assertThat(service.createIfAllowed(event("event-cooldown"), "cam-001", "risk reason")).isEmpty();
+        CommandDecision decision = service.createIfAllowed(
+                event("event-cooldown"),
+                "cam-001",
+                "risk reason"
+        );
+
+        assertThat(decision.outcome()).isEqualTo(CommandOutcome.SUPPRESSED);
+        assertThat(decision.commandId()).isNull();
+        assertThat(decision.blockers()).containsExactly(ActuationBlocker.COOLDOWN_ACTIVE);
 
         verify(deviceCommandRepository, never()).save(any(DeviceCommand.class));
     }
@@ -97,7 +123,15 @@ class DeviceCommandCreationServiceTest {
         when(deviceCommandRepository.save(any(DeviceCommand.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        assertThat(service.createIfAllowed(event("event-boundary"), "cam-001", "risk reason")).isPresent();
+        CommandDecision decision = service.createIfAllowed(
+                event("event-boundary"),
+                "cam-001",
+                "risk reason"
+        );
+
+        assertThat(decision.outcome()).isEqualTo(CommandOutcome.CREATED);
+        assertThat(decision.commandId()).isNotBlank();
+        assertThat(decision.blockers()).isEmpty();
     }
 
     private DeviceCommand commandCreatedAt(Instant createdAt) {
