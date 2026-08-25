@@ -20,6 +20,9 @@ server:
   port: ${SERVER_PORT:8080}
 
 animalguard:
+  device-control:
+    cooldown: ${DEVICE_COMMAND_COOLDOWN:20s}
+    camera-device-mappings: {}
   risk:
     class-scores:
       MAGPIE: 30
