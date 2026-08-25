@@ -89,8 +89,9 @@ client와 camera source를 닫습니다.
 
 - 2xx: 성공을 기록하고 다음 주기로 진행
 - 400, 413, 422: status를 기록하고 현재 프레임 폐기
-- 401, 403: 설정 오류를 한 번 기록하고 현재 프레임 폐기
-- 5xx, timeout, connection error: warning을 기록하고 현재 프레임 폐기
+- 401, 403: 설정 오류를 기록하고 업로더를 정상 종료
+- 409: Backend 중복 event를 기록하고 현재 프레임 폐기
+- 5xx, timeout, connection error: 요청 실패 warning을 기록하고 현재 프레임 폐기
 
 응답 로그에는 status와 JSON key 또는 body 크기 요약만 남깁니다. 이미지 bytes,
 비밀번호, 내부 stack trace는 기록하지 않습니다.
@@ -117,8 +118,17 @@ AI Server까지의 hardware smoke test는 이 저장소 테스트에서 실행�
 - 애플리케이션: `/opt/animalguard/camera-uploader`
 - 환경 파일: `/etc/animalguard/camera-uploader.env`
 - 서비스 사용자: `animalguard`
+- 카메라 장치 supplementary group: `video`
 
-운영 장비의 사용자와 경로에 맞게 unit을 검토한 뒤 관리자가 설치합니다.
+운영 장비의 사용자와 경로에 맞게 unit을 검토한 뒤 관리자가 설치합니다. 실제 장비에서
+`video` group이 카메라와 DMA 장치에 필요한 접근 권한을 제공하는지 다음 명령으로
+확인해야 합니다.
+
+```bash
+id animalguard
+ls -l /dev/video*
+ls -l /dev/dma_heap/*
+```
 
 ```bash
 sudo cp systemd/animalguard-camera-uploader.service /etc/systemd/system/
@@ -127,8 +137,10 @@ sudo systemctl enable --now animalguard-camera-uploader.service
 sudo systemctl status animalguard-camera-uploader.service
 ```
 
-이 unit은 실패 시 5초 뒤 재시작하며 `SIGTERM`으로 정상 종료를 요청합니다. unit을
-실제 장비에 설치하거나 enable하는 작업은 이 구현 범위에 포함하지 않습니다.
+이 unit은 실패 시 5초 뒤 재시작하되 60초 동안 3회로 시작을 제한하며 `SIGTERM`으로
+정상 종료를 요청합니다. 권한이나 환경 설정 오류가 반복되면 원인을 수정한 뒤
+`systemctl reset-failed animalguard-camera-uploader.service`로 제한 상태를 해제합니다.
+unit을 실제 장비에 설치하거나 enable하는 작업은 이 구현 범위에 포함하지 않습니다.
 
 SSH `22/TCP`는 배포, 로그 확인, 서비스 재시작 용도입니다. VNC `5090/TCP`는 필요할
 때만 사용하는 선택적 GUI 관리 경로이며 업로더 실행에 필요하지 않습니다.

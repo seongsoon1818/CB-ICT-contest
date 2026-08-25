@@ -11,7 +11,7 @@ from animalguard_camera.frame_source import (
     Picamera2FrameSource,
 )
 from animalguard_camera.settings import Settings
-from animalguard_camera.uploader import FrameUploader
+from animalguard_camera.uploader import FrameUploader, UploadResult
 
 
 LOGGER = logging.getLogger(__name__)
@@ -39,7 +39,11 @@ def run_capture_loop(
             )
         else:
             captured_at = now()
-            uploader.upload(frame, captured_at)
+            result = uploader.upload(frame, captured_at)
+            if result is UploadResult.CONFIGURATION_ERROR:
+                LOGGER.error("Stopping camera uploader because its configuration was rejected")
+                stop_event.set()
+                break
 
         remaining = interval_seconds - (monotonic() - cycle_started_at)
         if remaining > 0 and wait_for_stop(remaining):

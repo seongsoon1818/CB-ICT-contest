@@ -157,3 +157,29 @@ def test_loop_continues_with_a_new_frame_after_upload_failure(
     assert b"fresh-frame" not in requests[0]
     assert b"fresh-frame" in requests[1]
     assert b"discarded-frame" not in requests[1]
+
+
+def test_configuration_error_stops_loop_and_closes_resources() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(401, json={"detail": "denied"})
+
+    source = RecordingSource([], [b"first-frame", b"second-frame"])
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    uploader = FrameUploader("http://ai.example", "cam-001", 10, client=client)
+    stop_event = threading.Event()
+
+    run_service(
+        Settings("http://ai.example", "cam-001"),
+        source=source,
+        uploader=uploader,
+        stop_event=stop_event,
+        wait=lambda seconds: False,
+    )
+
+    assert len(requests) == 1
+    assert stop_event.is_set()
+    assert source.closed
+    assert client.is_closed

@@ -47,6 +47,7 @@ def test_upload_sends_required_multipart_fields_and_timezone() -> None:
         (400, UploadResult.CLIENT_ERROR),
         (413, UploadResult.CLIENT_ERROR),
         (422, UploadResult.CLIENT_ERROR),
+        (409, UploadResult.CLIENT_ERROR),
         (500, UploadResult.TRANSIENT_ERROR),
     ],
 )
@@ -110,3 +111,27 @@ def test_repeated_authentication_error_is_logged_once(
         if "rejected uploader configuration" in record.message
     ]
     assert len(matching_records) == 1
+
+
+def test_409_is_logged_as_duplicate_instead_of_unexpected(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    uploader, _ = make_uploader(
+        httpx.MockTransport(lambda request: httpx.Response(409, json={"detail": "duplicate"}))
+    )
+
+    assert uploader.upload(b"frame", CAPTURED_AT) is UploadResult.CLIENT_ERROR
+    assert "reported a duplicate event" in caplog.text
+    assert "Unexpected AI Server response" not in caplog.text
+
+
+def test_5xx_log_does_not_claim_ai_server_is_unavailable(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    uploader, _ = make_uploader(
+        httpx.MockTransport(lambda request: httpx.Response(502, json={"detail": "upstream"}))
+    )
+
+    assert uploader.upload(b"frame", CAPTURED_AT) is UploadResult.TRANSIENT_ERROR
+    assert "AI Server request failed" in caplog.text
+    assert "AI Server is unavailable" not in caplog.text

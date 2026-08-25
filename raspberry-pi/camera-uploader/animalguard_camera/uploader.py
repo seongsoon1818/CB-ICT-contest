@@ -72,9 +72,15 @@ class FrameUploader:
                 summary,
             )
             return UploadResult.CLIENT_ERROR
+        if response.status_code == 409:
+            LOGGER.warning(
+                "AI Server reported a duplicate event; discarding the current frame: %s",
+                summary,
+            )
+            return UploadResult.CLIENT_ERROR
         if response.status_code >= 500:
             LOGGER.warning(
-                "AI Server is unavailable; discarding the current frame: status=%s %s",
+                "AI Server request failed; discarding the current frame: status=%s %s",
                 response.status_code,
                 summary,
             )

@@ -2,10 +2,13 @@
 Description=AnimalGuard Raspberry Pi Camera Uploader
 Wants=network-online.target
 After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
 User=animalguard
+SupplementaryGroups=video
 WorkingDirectory=/opt/animalguard/camera-uploader
 EnvironmentFile=/etc/animalguard/camera-uploader.env
 ExecStart=/opt/animalguard/camera-uploader/.venv/bin/python -m animalguard_camera.main
