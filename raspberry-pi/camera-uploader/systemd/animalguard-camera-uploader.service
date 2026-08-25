@@ -1,0 +1,18 @@
+[Unit]
+Description=AnimalGuard Raspberry Pi Camera Uploader
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=animalguard
+WorkingDirectory=/opt/animalguard/camera-uploader
+EnvironmentFile=/etc/animalguard/camera-uploader.env
+ExecStart=/opt/animalguard/camera-uploader/.venv/bin/python -m animalguard_camera.main
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
