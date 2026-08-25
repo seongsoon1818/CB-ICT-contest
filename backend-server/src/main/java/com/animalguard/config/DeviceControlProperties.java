@@ -39,4 +39,9 @@ public record DeviceControlProperties(
     public boolean isCommandTtlPositive() {
         return commandTtl == null || (!commandTtl.isZero() && !commandTtl.isNegative());
     }
+
+    @AssertTrue(message = "commandTtl must not exceed cooldown")
+    public boolean isCommandTtlNotLongerThanCooldown() {
+        return commandTtl == null || cooldown == null || commandTtl.compareTo(cooldown) <= 0;
+    }
 }

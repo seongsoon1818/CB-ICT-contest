@@ -13,6 +13,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -32,6 +33,10 @@ public class DeviceCommand {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Version
+    @Column(nullable = false)
+    private long version;
 
     @Column(name = "command_id", nullable = false, updatable = false, length = 100)
     private String commandId;
@@ -71,14 +76,26 @@ public class DeviceCommand {
     @Column(name = "acknowledged_at")
     private Instant acknowledgedAt;
 
+    @Column(name = "acknowledged_reported_at")
+    private Instant acknowledgedReportedAt;
+
     @Column(name = "executed_at")
     private Instant executedAt;
+
+    @Column(name = "executed_reported_at")
+    private Instant executedReportedAt;
 
     @Column(name = "failed_at")
     private Instant failedAt;
 
+    @Column(name = "failed_reported_at")
+    private Instant failedReportedAt;
+
     @Column(name = "expired_at")
     private Instant expiredAt;
+
+    @Column(name = "expired_reported_at")
+    private Instant expiredReportedAt;
 
     public DeviceCommand(
             String commandId,
@@ -122,30 +139,34 @@ public class DeviceCommand {
         publishedAt = at;
     }
 
-    public void markAcknowledged(Instant at) {
-        at = requireTimestamp(at);
+    public void markAcknowledged(Instant receivedAt, Instant reportedAt) {
+        receivedAt = requireTimestamp(receivedAt);
+        reportedAt = requireReportedTimestamp(reportedAt);
         if (status == DeviceCommandStatus.ACKNOWLEDGED) {
             return;
         }
         requireStatus(DeviceCommandStatus.PUBLISHED, DeviceCommandStatus.ACKNOWLEDGED);
-        requireNotBefore(at, publishedAt);
+        requireNotBefore(receivedAt, publishedAt);
         status = DeviceCommandStatus.ACKNOWLEDGED;
-        acknowledgedAt = at;
+        acknowledgedAt = receivedAt;
+        acknowledgedReportedAt = reportedAt;
     }
 
-    public void markExecuted(Instant at) {
-        at = requireTimestamp(at);
+    public void markExecuted(Instant receivedAt, Instant reportedAt) {
+        receivedAt = requireTimestamp(receivedAt);
+        reportedAt = requireReportedTimestamp(reportedAt);
         if (status == DeviceCommandStatus.EXECUTED) {
             return;
         }
         requireStatus(DeviceCommandStatus.ACKNOWLEDGED, DeviceCommandStatus.EXECUTED);
-        requireNotBefore(at, acknowledgedAt);
+        requireNotBefore(receivedAt, acknowledgedAt);
         status = DeviceCommandStatus.EXECUTED;
-        executedAt = at;
+        executedAt = receivedAt;
+        executedReportedAt = reportedAt;
     }
 
-    public void markFailed(Instant at) {
-        at = requireTimestamp(at);
+    public void markFailed(Instant receivedAt, Instant reportedAt) {
+        receivedAt = requireTimestamp(receivedAt);
         if (status == DeviceCommandStatus.FAILED) {
             return;
         }
@@ -155,13 +176,14 @@ public class DeviceCommand {
             case ACKNOWLEDGED -> acknowledgedAt;
             default -> throw invalidTransition(DeviceCommandStatus.FAILED);
         };
-        requireNotBefore(at, previousTimestamp);
+        requireNotBefore(receivedAt, previousTimestamp);
         status = DeviceCommandStatus.FAILED;
-        failedAt = at;
+        failedAt = receivedAt;
+        failedReportedAt = reportedAt;
     }
 
-    public void markExpired(Instant at) {
-        at = requireTimestamp(at);
+    public void markExpired(Instant receivedAt, Instant reportedAt) {
+        receivedAt = requireTimestamp(receivedAt);
         if (status == DeviceCommandStatus.EXPIRED) {
             return;
         }
@@ -171,9 +193,10 @@ public class DeviceCommand {
             case PUBLISHED -> publishedAt;
             default -> throw invalidTransition(DeviceCommandStatus.EXPIRED);
         };
-        requireNotBefore(at, previousTimestamp);
+        requireNotBefore(receivedAt, previousTimestamp);
         status = DeviceCommandStatus.EXPIRED;
-        expiredAt = at;
+        expiredAt = receivedAt;
+        expiredReportedAt = reportedAt;
     }
 
     private void requireStatus(DeviceCommandStatus expected, DeviceCommandStatus target) {
@@ -188,6 +211,10 @@ public class DeviceCommand {
 
     private static Instant requireTimestamp(Instant at) {
         return Objects.requireNonNull(at, "transition timestamp must not be null");
+    }
+
+    private static Instant requireReportedTimestamp(Instant at) {
+        return Objects.requireNonNull(at, "device reported timestamp must not be null");
     }
 
     private static void requireNotBefore(Instant at, Instant lowerBound) {

@@ -87,6 +87,14 @@ class DeviceCommandMigrationTest {
         assertTimestampEqualsCreatedAt(jdbcTemplate, "expires_at");
         assertTimestampEqualsCreatedAt(jdbcTemplate, "expired_at");
         assertThat(jdbcTemplate.queryForObject(
+                "SELECT version FROM device_commands WHERE command_id = 'legacy-command-001'",
+                Long.class
+        )).isZero();
+        assertThat(jdbcTemplate.queryForMap(
+                "SELECT acknowledged_reported_at, executed_reported_at, failed_reported_at, "
+                        + "expired_reported_at FROM device_commands WHERE command_id = 'legacy-command-001'"
+        ).values()).containsOnlyNulls();
+        assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM \"flyway_schema_history\" "
                         + "WHERE \"version\" IN ('1', '2') AND \"success\" = TRUE",
                 Integer.class

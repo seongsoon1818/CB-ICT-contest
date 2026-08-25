@@ -59,6 +59,24 @@ class DeviceControlPropertiesBindingTest {
     }
 
     @Test
+    void rejectsCommandTtlLongerThanCooldown() {
+        contextRunner
+                .withPropertyValues("animalguard.device-control.command-ttl=21s")
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasMessageContaining("Could not bind properties");
+                });
+    }
+
+    @Test
+    void acceptsCommandTtlEqualToCooldown() {
+        contextRunner
+                .withPropertyValues("animalguard.device-control.command-ttl=20s")
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    @Test
     void rejectsInvalidCameraIdMappingKey() {
         contextRunner
                 .withPropertyValues("animalguard.device-control.camera-device-mappings.[cam/invalid]=pi-001")

@@ -6,6 +6,11 @@ ALTER TABLE device_commands ADD COLUMN acknowledged_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE device_commands ADD COLUMN executed_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE device_commands ADD COLUMN failed_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE device_commands ADD COLUMN expired_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE device_commands ADD COLUMN acknowledged_reported_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE device_commands ADD COLUMN executed_reported_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE device_commands ADD COLUMN failed_reported_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE device_commands ADD COLUMN expired_reported_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE device_commands ADD COLUMN version BIGINT NOT NULL DEFAULT 0;
 
 UPDATE device_commands
 SET status = 'EXPIRED',
