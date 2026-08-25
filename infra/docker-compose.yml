@@ -15,5 +15,12 @@ services:
       timeout: 5s
       retries: 10
 
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    ports:
+      - "127.0.0.1:1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
 volumes:
   animalguard-postgres-data:
