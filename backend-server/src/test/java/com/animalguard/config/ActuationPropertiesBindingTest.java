@@ -4,6 +4,7 @@ import com.animalguard.service.ActuationTransportReadiness;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,8 +53,34 @@ class ActuationPropertiesBindingTest {
                 });
     }
 
+    @Test
+    void regularTransportReadinessOverridesFallbackWithoutPrimary() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(
+                        DeviceControlConfiguration.class,
+                        AvailableTransportConfiguration.class
+                )
+                .withPropertyValues(
+                        "animalguard.device-control.cooldown=20s",
+                        "animalguard.device-control.command-ttl=10s"
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(ActuationTransportReadiness.class).isReady()).isTrue();
+                });
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(ActuationProperties.class)
     static class ActuationPropertiesConfiguration {
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class AvailableTransportConfiguration {
+
+        @Bean
+        ActuationTransportReadiness availableActuationTransportReadiness() {
+            return () -> true;
+        }
     }
 }

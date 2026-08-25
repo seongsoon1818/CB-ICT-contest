@@ -1,10 +1,10 @@
 package com.animalguard.config;
 
 import com.animalguard.service.ActuationTransportReadiness;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Fallback;
 
 import java.time.Clock;
 
@@ -18,7 +18,7 @@ public class DeviceControlConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(ActuationTransportReadiness.class)
+    @Fallback
     ActuationTransportReadiness unavailableActuationTransportReadiness() {
         return () -> false;
     }

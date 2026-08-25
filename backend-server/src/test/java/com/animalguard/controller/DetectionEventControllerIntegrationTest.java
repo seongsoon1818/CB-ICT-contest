@@ -568,7 +568,6 @@ class DetectionEventControllerIntegrationTest {
         }
 
         @Bean
-        @Primary
         MutableActuationTransportReadiness mutableActuationTransportReadiness() {
             return new MutableActuationTransportReadiness();
         }

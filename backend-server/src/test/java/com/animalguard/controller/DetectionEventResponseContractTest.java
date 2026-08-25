@@ -21,6 +21,8 @@ class DetectionEventResponseContractTest {
     @Test
     void preservesPublishedActuationBlockerValues() throws JsonProcessingException {
         assertThat(objectMapper.writeValueAsString(ActuationBlocker.values()))
-                .isEqualTo("[\"CAMERA_UNMAPPED\",\"COOLDOWN_ACTIVE\"]");
+                .isEqualTo("[\"ACTUATION_DISABLED\",\"RISK_POLICY_UNCONFIRMED\","
+                        + "\"CAMERA_DEVICE_MAPPING_EMPTY\",\"MQTT_PUBLISHER_NOT_READY\","
+                        + "\"CAMERA_UNMAPPED\",\"COOLDOWN_ACTIVE\"]");
     }
 }
