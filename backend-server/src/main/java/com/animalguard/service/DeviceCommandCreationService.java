@@ -28,10 +28,16 @@ public class DeviceCommandCreationService {
 
     private final DeviceCommandRepository deviceCommandRepository;
     private final DeviceControlProperties properties;
+    private final ActuationPreflightService preflightService;
     private final Clock clock;
     private final ReentrantLock commandGate = new ReentrantLock(true);
 
     public CommandDecision createIfAllowed(DetectionEvent event, String cameraId, String reason) {
+        ActuationPreflight preflight = preflightService.evaluate();
+        if (!preflight.ready()) {
+            return CommandDecision.suppressed(preflight.blockers());
+        }
+
         String deviceId = properties.cameraDeviceMappings().get(cameraId);
         if (deviceId == null) {
             return CommandDecision.suppressed(List.of(ActuationBlocker.CAMERA_UNMAPPED));

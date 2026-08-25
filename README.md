@@ -27,9 +27,9 @@ AnimalGuard는 카메라 기반 유해동물 탐지·분류 결과를 활용해 
 
 ## 현재 구현 상태
 
-Backend는 `POST /api/v1/detection/events`로 Detection Event v1을 받아 이벤트와 탐지, 모델 버전, 위험도 판단을 저장합니다. HIGH 위험도일 때만 MQTT 전달 field와 TTL을 포함한 DeviceCommand를 생성하며 중복 eventId는 `409 Conflict`로 거절합니다. DeviceCommand는 Publisher/ACK Subscriber가 호출할 명시적 상태 전이 method를 제공하지만 실제 MQTT 연결은 아직 없습니다.
+Backend는 `POST /api/v1/detection/events`로 Detection Event v1을 받아 이벤트와 탐지, 모델 버전, 위험도 판단을 저장합니다. LOW/MEDIUM은 `NOT_REQUESTED`, HIGH의 생성 성공은 `CREATED`, 안전 조건으로 명령을 만들지 않으면 기계 판독 가능한 blocker가 포함된 `SUPPRESSED`로 응답합니다. `GET /api/v1/actuation/preflight`는 실제 장치 작동 설정, 위험 정책 확정, camera-device mapping과 MQTT Publisher readiness를 한 번에 진단합니다. DeviceCommand는 Publisher/ACK Subscriber가 호출할 명시적 상태 전이 method를 제공하지만 실제 MQTT 연결은 아직 없습니다.
 
-AI Server, 실제 모델, MQTT/GPIO 실행 코드, actuation preflight, retry/outbox, ROI 계산은 아직 구현하지 않았습니다.
+AI Server의 실제 모델, Backend MQTT Publisher/ACK Subscriber, GPIO 실행 코드, retry/outbox, ROI 계산은 아직 구현하지 않았습니다. 안전 기본값으로 actuation과 위험 정책 확정 여부는 false이고 기본 MQTT Publisher readiness도 false이므로 실제 DeviceCommand 생성은 차단됩니다.
 
 ## 로컬 실행
 

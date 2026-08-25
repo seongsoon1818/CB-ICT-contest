@@ -27,6 +27,9 @@ server:
   port: ${SERVER_PORT:8080}
 
 animalguard:
+  actuation:
+    enabled: ${ACTUATION_ENABLED:false}
+    risk-policy-confirmed: ${RISK_POLICY_CONFIRMED:false}
   device-control:
     cooldown: ${DEVICE_COMMAND_COOLDOWN:20s}
     command-ttl: ${DEVICE_COMMAND_TTL:10s}
