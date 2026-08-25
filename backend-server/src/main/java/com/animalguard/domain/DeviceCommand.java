@@ -111,6 +111,91 @@ public class DeviceCommand {
         this.createdAt = issuedAt;
     }
 
+    public void markPublished(Instant at) {
+        at = requireTimestamp(at);
+        if (status == DeviceCommandStatus.PUBLISHED) {
+            return;
+        }
+        requireStatus(DeviceCommandStatus.CREATED, DeviceCommandStatus.PUBLISHED);
+        requireNotBefore(at, issuedAt);
+        status = DeviceCommandStatus.PUBLISHED;
+        publishedAt = at;
+    }
+
+    public void markAcknowledged(Instant at) {
+        at = requireTimestamp(at);
+        if (status == DeviceCommandStatus.ACKNOWLEDGED) {
+            return;
+        }
+        requireStatus(DeviceCommandStatus.PUBLISHED, DeviceCommandStatus.ACKNOWLEDGED);
+        requireNotBefore(at, publishedAt);
+        status = DeviceCommandStatus.ACKNOWLEDGED;
+        acknowledgedAt = at;
+    }
+
+    public void markExecuted(Instant at) {
+        at = requireTimestamp(at);
+        if (status == DeviceCommandStatus.EXECUTED) {
+            return;
+        }
+        requireStatus(DeviceCommandStatus.ACKNOWLEDGED, DeviceCommandStatus.EXECUTED);
+        requireNotBefore(at, acknowledgedAt);
+        status = DeviceCommandStatus.EXECUTED;
+        executedAt = at;
+    }
+
+    public void markFailed(Instant at) {
+        at = requireTimestamp(at);
+        if (status == DeviceCommandStatus.FAILED) {
+            return;
+        }
+
+        Instant previousTimestamp = switch (status) {
+            case PUBLISHED -> publishedAt;
+            case ACKNOWLEDGED -> acknowledgedAt;
+            default -> throw invalidTransition(DeviceCommandStatus.FAILED);
+        };
+        requireNotBefore(at, previousTimestamp);
+        status = DeviceCommandStatus.FAILED;
+        failedAt = at;
+    }
+
+    public void markExpired(Instant at) {
+        at = requireTimestamp(at);
+        if (status == DeviceCommandStatus.EXPIRED) {
+            return;
+        }
+
+        Instant previousTimestamp = switch (status) {
+            case CREATED -> issuedAt;
+            case PUBLISHED -> publishedAt;
+            default -> throw invalidTransition(DeviceCommandStatus.EXPIRED);
+        };
+        requireNotBefore(at, previousTimestamp);
+        status = DeviceCommandStatus.EXPIRED;
+        expiredAt = at;
+    }
+
+    private void requireStatus(DeviceCommandStatus expected, DeviceCommandStatus target) {
+        if (status != expected) {
+            throw invalidTransition(target);
+        }
+    }
+
+    private IllegalStateException invalidTransition(DeviceCommandStatus target) {
+        return new IllegalStateException("Cannot transition DeviceCommand from " + status + " to " + target);
+    }
+
+    private static Instant requireTimestamp(Instant at) {
+        return Objects.requireNonNull(at, "transition timestamp must not be null");
+    }
+
+    private static void requireNotBefore(Instant at, Instant lowerBound) {
+        if (at.isBefore(lowerBound)) {
+            throw new IllegalArgumentException("transition timestamp must not be before the previous timestamp");
+        }
+    }
+
     private static String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(fieldName + " must not be blank");
