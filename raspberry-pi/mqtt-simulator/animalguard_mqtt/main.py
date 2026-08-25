@@ -100,15 +100,20 @@ def _build_client(
             message.qos,
             message.dup,
         )
-        handler.handle(
-            message.payload,
-            lambda ack: _publish_json(
-                connected_client,
-                ack_topic(settings.device_id),
-                ack,
-                retain=False,
-            ),
+        publish_ack = lambda ack: _publish_json(
+            connected_client,
+            ack_topic(settings.device_id),
+            ack,
+            retain=False,
         )
+        if message.qos != QOS or message.retain:
+            handler.reject(
+                message.payload,
+                publish_ack,
+                f"qos={message.qos} retain={message.retain}",
+            )
+            return
+        handler.handle(message.payload, publish_ack)
 
     client.on_connect = on_connect
     client.on_message = on_message

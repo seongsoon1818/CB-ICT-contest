@@ -33,7 +33,7 @@ Device ID가 `pi-001`이면 다음 topic을 사용합니다.
 - ACK publish: `animalguard/devices/pi-001/acks`
 - status publish: `animalguard/devices/pi-001/status`
 
-command와 ACK는 QoS 1이며 retain하지 않습니다. Simulator는 command topic에 payload의 `deviceId`와 같은 설정값을 사용합니다. Device ID에 topic 구분자나 공백이 있으면 하나의 topic segment가 되도록 percent-encoding합니다.
+command와 ACK는 QoS 1이며 retain하지 않습니다. QoS 0이거나 retained delivery인 command는 실행하지 않고, 식별자가 유효하면 FAILED로 저장·발행합니다. Simulator는 command topic에 payload의 `deviceId`와 같은 설정값을 사용합니다. Device ID에 topic 구분자나 공백이 있으면 하나의 topic segment가 되도록 percent-encoding합니다.
 
 연결 성공 시 ONLINE을 발행하고 설정 주기마다 heartbeat를 보냅니다. 정상 종료 시 OFFLINE을 발행합니다. 로컬 개발 편의를 위해 status만 retain합니다. 이 선택은 운영 retain 정책을 확정하는 것이 아닙니다.
 

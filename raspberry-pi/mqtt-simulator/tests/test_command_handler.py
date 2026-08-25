@@ -123,3 +123,15 @@ def test_invalid_json_without_identifiers_does_not_publish_ack(tmp_path):
     assert published == []
     assert handler.gpio.execution_count == 0
     store.close()
+
+
+def test_rejected_mqtt_envelope_publishes_failed_without_execution(tmp_path):
+    handler, store = make_handler(tmp_path / "commands.db")
+    published = []
+
+    handler.reject(command_payload(), published.append, "qos=0 retain=False")
+
+    assert [ack["status"] for ack in published] == ["FAILED"]
+    assert handler.gpio.execution_count == 0
+    assert store.get("cmd-001").status == "FAILED"
+    store.close()

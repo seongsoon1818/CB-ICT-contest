@@ -80,6 +80,17 @@ class CommandHandler:
         )
         self._update_and_publish(executed, publish_ack)
 
+    def reject(
+        self,
+        raw_payload: bytes | str,
+        publish_ack: PublishAck,
+        reason: str,
+    ) -> None:
+        LOGGER.warning("command envelope 거절: %s", reason)
+        payload = self._decode_payload(raw_payload)
+        if payload is not None:
+            self._publish_rejected(payload, publish_ack)
+
     def _decode_payload(self, raw_payload: bytes | str) -> dict[str, Any] | None:
         try:
             payload = json.loads(raw_payload)
