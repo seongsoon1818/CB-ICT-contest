@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from PIL import Image
 
 from app.backend_client import BackendConflict, BackendUnavailable
+from app.inference import DecodedFrame
 from app.main import MAX_JPEG_BYTES, create_app
 from app.schemas import DetectionEvent
 from app.settings import Settings
@@ -276,3 +277,18 @@ def test_backend_conflict_returns_409() -> None:
     response = analyze(client, make_jpeg())
 
     assert response.status_code == 409
+
+
+def test_analyze_closes_decoded_image(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image = Image.new("RGB", (20, 10), "white")
+    decoded_frame = DecodedFrame(image=image, width=20, height=10)
+    monkeypatch.setattr("app.main.decode_jpeg", lambda data: decoded_frame)
+    client, _ = make_client()
+
+    response = analyze(client, make_jpeg())
+
+    assert response.status_code == 200
+    with pytest.raises(ValueError, match="closed image"):
+        image.getpixel((0, 0))

@@ -6,7 +6,6 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 
 from app.backend_client import BackendClient, BackendConflict, BackendUnavailable
 from app.inference import (
-    DETECTOR_VERSION,
     FrameTooLargeError,
     InvalidJpegError,
     MockInference,
@@ -83,7 +82,7 @@ def create_app(
             )
 
         try:
-            width, height = decode_jpeg(frame_bytes)
+            decoded_frame = decode_jpeg(frame_bytes)
         except FrameTooLargeError as error:
             raise HTTPException(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
@@ -95,34 +94,41 @@ def create_app(
                 detail=str(error),
             ) from error
 
-        event = DetectionEvent(
-            eventId=uuid4(),
-            cameraId=cameraId,
-            capturedAt=capturedAt,
-            image=ImageInfo(width=width, height=height),
-            model=ModelInfo(
-                detectorVersion=DETECTOR_VERSION,
-                classifierVersion=None,
-            ),
-            detections=inference.analyze(width, height),
-        )
-        if configured_backend_client is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Backend client is not configured",
-            )
         try:
-            return await configured_backend_client.send_detection_event(event)
-        except BackendConflict as error:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Backend reported a duplicate event",
-            ) from error
-        except BackendUnavailable as error:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Backend request failed",
-            ) from error
+            metadata = inference.metadata
+            event = DetectionEvent(
+                eventId=uuid4(),
+                cameraId=cameraId,
+                capturedAt=capturedAt,
+                image=ImageInfo(
+                    width=decoded_frame.width,
+                    height=decoded_frame.height,
+                ),
+                model=ModelInfo(
+                    detectorVersion=metadata.detector_version,
+                    classifierVersion=metadata.classifier_version,
+                ),
+                detections=inference.analyze(decoded_frame),
+            )
+            if configured_backend_client is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Backend client is not configured",
+                )
+            try:
+                return await configured_backend_client.send_detection_event(event)
+            except BackendConflict as error:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Backend reported a duplicate event",
+                ) from error
+            except BackendUnavailable as error:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Backend request failed",
+                ) from error
+        finally:
+            decoded_frame.image.close()
 
     return application
 
