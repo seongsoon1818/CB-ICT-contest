@@ -61,7 +61,8 @@ public class DeviceCommand {
             String deviceId,
             String commandType,
             int durationMs,
-            DeviceCommandStatus status
+            DeviceCommandStatus status,
+            Instant createdAt
     ) {
         this.commandId = commandId;
         this.event = event;
@@ -69,6 +70,6 @@ public class DeviceCommand {
         this.commandType = commandType;
         this.durationMs = durationMs;
         this.status = status;
-        this.createdAt = Instant.now();
+        this.createdAt = createdAt;
     }
 }
