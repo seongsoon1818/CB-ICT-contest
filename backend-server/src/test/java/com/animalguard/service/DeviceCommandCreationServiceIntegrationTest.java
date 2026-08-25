@@ -31,10 +31,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = {
         "animalguard.actuation.enabled=true",
@@ -202,19 +204,44 @@ class DeviceCommandCreationServiceIntegrationTest {
     }
 
     @Test
-    void serializesConcurrentCommandCreationForSameDeviceThroughTransactionCompletion() throws Exception {
+    void holdsCommandGateUntilFirstTransactionCompletes() throws Exception {
         DetectionEvent firstEvent = saveEvent("event-concurrent-first", "cam-001");
         DetectionEvent secondEvent = saveEvent("event-concurrent-second", "cam-001");
         ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch ready = new CountDownLatch(2);
-        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch firstServiceReturned = new CountDownLatch(1);
+        CountDownLatch allowFirstCommit = new CountDownLatch(1);
+        CountDownLatch secondTransactionStarted = new CountDownLatch(1);
 
         try {
-            Future<CommandDecision> first = executor.submit(() -> createConcurrently(firstEvent, ready, start));
-            Future<CommandDecision> second = executor.submit(() -> createConcurrently(secondEvent, ready, start));
+            Future<CommandDecision> first = executor.submit(() -> transactionTemplate.execute(status -> {
+                CommandDecision decision = service.createIfAllowed(
+                        firstEvent,
+                        "cam-001",
+                        DeviceCommandType.SOUND_ALERT,
+                        "FIRST_ANIMAL_DETECTION"
+                );
+                firstServiceReturned.countDown();
+                await(allowFirstCommit, "First transaction commit was not released");
+                return decision;
+            }));
 
-            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
-            start.countDown();
+            assertThat(firstServiceReturned.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<CommandDecision> second = executor.submit(() -> transactionTemplate.execute(status -> {
+                secondTransactionStarted.countDown();
+                return service.createIfAllowed(
+                        secondEvent,
+                        "cam-001",
+                        DeviceCommandType.SOUND_ALERT,
+                        "FIRST_ANIMAL_DETECTION"
+                );
+            }));
+
+            assertThat(secondTransactionStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> second.get(500, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+
+            allowFirstCommit.countDown();
 
             List<CommandDecision> decisions = List.of(
                     first.get(10, TimeUnit.SECONDS),
@@ -229,6 +256,7 @@ class DeviceCommandCreationServiceIntegrationTest {
                     .extracting(CommandDecision::blockers)
                     .isEqualTo(List.of(ActuationBlocker.COOLDOWN_ACTIVE));
         } finally {
+            allowFirstCommit.countDown();
             executor.shutdownNow();
         }
 
@@ -256,21 +284,15 @@ class DeviceCommandCreationServiceIntegrationTest {
         return transactionTemplate.execute(status -> service.createIfAllowed(event, cameraId, commandType, reason));
     }
 
-    private CommandDecision createConcurrently(
-            DetectionEvent event,
-            CountDownLatch ready,
-            CountDownLatch start
-    ) throws InterruptedException {
-        ready.countDown();
-        if (!start.await(5, TimeUnit.SECONDS)) {
-            throw new IllegalStateException("Concurrent command start timed out");
+    private void await(CountDownLatch latch, String timeoutMessage) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException(timeoutMessage);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for transaction coordination", exception);
         }
-        return createInTransaction(
-                event,
-                "cam-001",
-                DeviceCommandType.SOUND_ALERT,
-                "FIRST_ANIMAL_DETECTION"
-        );
     }
 
     @TestConfiguration(proxyBeanMethods = false)
