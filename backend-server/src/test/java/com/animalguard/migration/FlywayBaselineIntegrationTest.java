@@ -1,6 +1,7 @@
 package com.animalguard.migration;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationState;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -25,7 +26,7 @@ class FlywayBaselineIntegrationTest {
     void appliesAllMigrationsBeforeHibernateValidation() {
         assertThat(flyway.info().applied())
                 .isNotEmpty()
-                .allSatisfy(migration -> assertThat(migration.getState().isApplied()).isTrue());
+                .allSatisfy(migration -> assertThat(migration.getState()).isEqualTo(MigrationState.SUCCESS));
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM \"flyway_schema_history\" "
                         + "WHERE \"success\" = TRUE AND \"version\" IS NOT NULL",
