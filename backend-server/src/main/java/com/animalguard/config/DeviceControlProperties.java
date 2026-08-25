@@ -17,6 +17,7 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "animalguard.device-control")
 public record DeviceControlProperties(
         @NotNull Duration cooldown,
+        @NotNull Duration commandTtl,
         Map<
                 @NotBlank @Size(max = 64)
                 @Pattern(regexp = "^[A-Za-z0-9][A-Za-z0-9._-]*$") String,
@@ -32,5 +33,10 @@ public record DeviceControlProperties(
     @AssertTrue(message = "cooldown must be positive")
     public boolean isCooldownPositive() {
         return cooldown == null || (!cooldown.isZero() && !cooldown.isNegative());
+    }
+
+    @AssertTrue(message = "commandTtl must be positive")
+    public boolean isCommandTtlPositive() {
+        return commandTtl == null || (!commandTtl.isZero() && !commandTtl.isNegative());
     }
 }

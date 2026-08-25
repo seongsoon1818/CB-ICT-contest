@@ -13,6 +13,7 @@ spring:
 animalguard:
   device-control:
     cooldown: 20s
+    command-ttl: 10s
     camera-device-mappings:
       cam-001: pi-001
       cam-002: pi-002
