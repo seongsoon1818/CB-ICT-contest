@@ -15,5 +15,10 @@ public record ActuationPreflight(
         if (ready != blockers.isEmpty()) {
             throw new IllegalArgumentException("ready must match whether blockers are empty");
         }
+        if (enabled == blockers.contains(ActuationBlocker.ACTUATION_DISABLED)) {
+            throw new IllegalArgumentException(
+                    "enabled must match absence of ACTUATION_DISABLED blocker"
+            );
+        }
     }
 }

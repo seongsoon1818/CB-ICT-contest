@@ -6,6 +6,7 @@ import com.animalguard.domain.ActuationBlocker;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,6 +69,23 @@ class ActuationPreflightServiceTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> new ActuationPreflight(true, true, preflight.blockers()))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void rejectsActuationDisabledBlockerThatContradictsEnabled() {
+        assertThatThrownBy(() -> new ActuationPreflight(
+                true,
+                false,
+                List.of(ActuationBlocker.ACTUATION_DISABLED)
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("enabled must match absence of ACTUATION_DISABLED blocker");
+
+        assertThatThrownBy(() -> new ActuationPreflight(
+                false,
+                false,
+                List.of(ActuationBlocker.RISK_POLICY_UNCONFIRMED)
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("enabled must match absence of ACTUATION_DISABLED blocker");
     }
 
     private ActuationPreflightService service(
