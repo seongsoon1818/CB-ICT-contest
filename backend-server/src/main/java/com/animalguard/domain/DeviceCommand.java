@@ -63,12 +63,24 @@ public class DeviceCommand {
             int durationMs,
             DeviceCommandStatus status
     ) {
+        this(commandId, event, deviceId, commandType, durationMs, status, Instant.now());
+    }
+
+    public DeviceCommand(
+            String commandId,
+            DetectionEvent event,
+            String deviceId,
+            String commandType,
+            int durationMs,
+            DeviceCommandStatus status,
+            Instant createdAt
+    ) {
         this.commandId = commandId;
         this.event = event;
         this.deviceId = deviceId;
         this.commandType = commandType;
         this.durationMs = durationMs;
         this.status = status;
-        this.createdAt = Instant.now();
+        this.createdAt = createdAt;
     }
 }
