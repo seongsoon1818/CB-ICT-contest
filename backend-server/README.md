@@ -35,19 +35,21 @@ animalguard:
       cam-001: pi-001
 ```
 
-cooldown과 command TTL은 모두 양수여야 하고 command TTL은 cooldown보다 길 수 없습니다. `DEVICE_COMMAND_TTL`의 기본값은 `10s`입니다. 이 관계는 아직 유효한 두 command가 같은 장치에서 겹치는 설정을 막습니다. command TTL은 Raspberry Pi가 새 command를 실행할 수 있는 payload 유효 기간이고, `durationMs`는 장치가 작동할 시간이므로 서로 다른 값입니다. cameraId는 Detection Event와 같은 식별자 형식을 사용하고 deviceId는 비어 있을 수 없습니다. 여러 cameraId가 같은 deviceId를 가리키는 설정은 허용합니다. cameraId에 점이 포함된 key를 명시적으로 보존하려면 YAML에서 `"[cam.001]": pi-001`처럼 대괄호를 포함한 key 전체를 따옴표로 묶습니다. 운영 기본 설정에는 실제 장치 매핑을 넣지 않고 빈 map을 사용하며, `local` 프로필에만 `cam-001: pi-001` 예시가 있습니다.
+cooldown과 command TTL은 모두 양수여야 하고 command TTL은 cooldown보다 길 수 없습니다. `DEVICE_COMMAND_TTL`의 기본값은 `10s`입니다. 이 관계는 아직 유효한 두 command가 같은 장치에서 겹치는 설정을 막습니다. command TTL은 Raspberry Pi가 새 command를 실행할 수 있는 payload 유효 기간입니다. `durationMs`는 `SOUND_ALERT`와 `DETERRENT_FULL`의 작동 시간이며, 회전과 `STOP_DETERRENT`에서는 null이므로 TTL과 다른 값입니다. cameraId는 Detection Event와 같은 식별자 형식을 사용하고 deviceId는 비어 있을 수 없습니다. 여러 cameraId가 같은 deviceId를 가리키는 설정은 허용합니다. cameraId에 점이 포함된 key를 명시적으로 보존하려면 YAML에서 `"[cam.001]": pi-001`처럼 대괄호를 포함한 key 전체를 따옴표로 묶습니다. 운영 기본 설정에는 실제 장치 매핑을 넣지 않고 빈 map을 사용하며, `local` 프로필에만 `cam-001: pi-001` 예시가 있습니다.
 
-HIGH 위험 이벤트가 들어오면 매핑된 deviceId의 최신 `device_commands` 기록으로 상태를 계산합니다.
+`DeviceCommandCreationService`는 향후 자동 response policy가 실제 Detection Event, cameraId, `DeviceCommandType`, reason을 명시적으로 전달할 때만 호출합니다. risk level만 보고 command를 추측하지 않으며, 현재 `DetectionEventService`는 관찰 state machine과 policy가 없으므로 HIGH를 포함한 모든 이벤트에서 RiskDecision까지만 저장하고 command는 `NOT_REQUESTED`로 둡니다.
+
+명시적인 자동 command 요청이 들어오면 매핑된 deviceId의 최신 현재-contract `device_commands` 기록으로 상태를 계산합니다.
 
 - 최신 command가 없으면 `IDLE`입니다.
 - `latest.createdAt + cooldown > now`이면 `COOLDOWN`입니다.
 - `latest.createdAt + cooldown <= now`이면 다시 `IDLE`입니다.
 
-`IDLE`에서는 `CREATED` command를 저장하고 응답에 `commandId`를 포함합니다. 새 command는 RiskDecision의 원본 `reason`, 서버 Clock의 `issuedAt`, `issuedAt + commandTtl`인 `expiresAt`을 저장하며 DB record 생성 시각 `createdAt`은 현재 MVP에서 `issuedAt`과 같습니다. reason이 500자를 넘으면 truncate하지 않고 생성을 거절합니다. `COOLDOWN`에서는 `SUPPRESSED/COOLDOWN_ACTIVE`, 매핑되지 않은 cameraId에서는 `SUPPRESSED/CAMERA_UNMAPPED`를 반환하고 DeviceCommand만 만들지 않습니다. 두 경로 모두 DetectionEvent, AnimalDetection, RiskDecision은 그대로 저장합니다. cameraId를 deviceId로 fallback하지 않습니다. LOW/MEDIUM 이벤트는 `NOT_REQUESTED`이며 command 생성 서비스를 호출하지 않고 기존 cooldown도 갱신하지 않습니다.
+`IDLE`에서는 `AUTOMATIC`/`CREATED` command를 저장하고 응답에 `commandId`를 포함합니다. 새 command는 호출자가 선택한 semantic type과 원본 `reason`, 서버 Clock의 `issuedAt`, `issuedAt + commandTtl`인 `expiresAt`을 저장하며 DB record 생성 시각 `createdAt`은 현재 MVP에서 `issuedAt`과 같습니다. reason이 500자를 넘으면 truncate하지 않고 생성을 거절합니다. `COOLDOWN`에서는 `SUPPRESSED/COOLDOWN_ACTIVE`, 매핑되지 않은 cameraId에서는 `SUPPRESSED/CAMERA_UNMAPPED`를 반환하고 DeviceCommand를 만들지 않습니다. cameraId를 deviceId로 fallback하지 않습니다.
 
 별도 상태 테이블이나 scheduler는 없습니다. `device_commands.created_at`이 source of truth이므로 애플리케이션 재시작 후에도 다음 이벤트에서 cooldown을 다시 계산합니다. cooldown은 카메라의 `capturedAt`이 아니라 Backend가 실제 command를 생성한 서버 시각을 기준으로 하며, 지연되거나 순서가 뒤바뀐 Detection Event가 장치 명령 간격을 왜곡하지 않도록 합니다.
 
-현재 command gate는 단일 Backend 인스턴스에서 모든 mapped device의 HIGH command 판단을 하나의 전역 gate로 transaction 완료까지 직렬화합니다. 따라서 선행 transaction이 완료되기 전에는 다른 device의 HIGH command 판단도 대기합니다. 다중 인스턴스 배포 전에는 DB 기반 원자적 gate 또는 분산 lock 검토가 필요합니다.
+현재 command gate는 단일 Backend 인스턴스에서 모든 mapped device의 자동 command 판단을 하나의 전역 gate로 transaction 완료까지 직렬화합니다. 따라서 선행 transaction이 완료되기 전에는 다른 device의 command 판단도 대기합니다. 다중 인스턴스 배포 전에는 DB 기반 원자적 gate 또는 분산 lock 검토가 필요합니다.
 
 ## 실제 장치 작동 preflight
 
@@ -90,7 +92,7 @@ blocked 상태도 진단 요청 자체는 성공했으므로 `200 OK`입니다.
 | `CAMERA_UNMAPPED` | 요청 cameraId가 mapping에 없음 | 억제 | 배포 설정 |
 | `COOLDOWN_ACTIVE` | 최신 command의 cooldown이 끝나지 않음 | 억제 | 시간 경과 |
 
-Preflight는 앞의 네 global blocker를 표 순서대로 모두 수집합니다. HIGH 이벤트의 command gate는 lock을 잡기 전에 global preflight를 평가하고, ready일 때만 특정 camera mapping과 cooldown을 차례로 확인합니다. 억제 상태에서도 DetectionEvent, AnimalDetection, RiskDecision은 저장하고 DeviceCommand만 생성하지 않습니다. LOW/MEDIUM은 preflight와 무관하게 `NOT_REQUESTED`입니다. 이 endpoint는 Backend 전체 health나 AI 모델 readiness를 대신하지 않습니다.
+Preflight는 앞의 네 global blocker를 표 순서대로 모두 수집합니다. 명시적인 자동 command 요청은 lock을 잡기 전에 global preflight를 평가하고, ready일 때만 특정 camera mapping과 cooldown을 차례로 확인합니다. 현재 Detection Event 수신 경로는 자동 policy가 없어 command 생성 서비스를 호출하지 않으므로 risk level과 무관하게 `NOT_REQUESTED`입니다. 이 endpoint는 Backend 전체 health나 AI 모델 readiness를 대신하지 않습니다. 안전 정지인 `STOP_DETERRENT`의 최종 blocker 우회 정책은 Publisher/manual API 후속 작업에서 확정하며, 이번 단계에서는 기존 preflight를 우회하지 않습니다.
 
 ## 로컬 실행
 

@@ -6,7 +6,9 @@ import com.animalguard.domain.ActuationBlocker;
 import com.animalguard.domain.CommandOutcome;
 import com.animalguard.domain.DetectionEvent;
 import com.animalguard.domain.DeviceCommand;
+import com.animalguard.domain.DeviceCommandSource;
 import com.animalguard.domain.DeviceCommandStatus;
+import com.animalguard.domain.DeviceCommandType;
 import com.animalguard.repository.DeviceCommandRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +53,7 @@ class DeviceCommandCreationServiceTest {
         CommandDecision decision = service(properties, false, true, true).createIfAllowed(
                 event("event-disabled"),
                 "cam-001",
+                DeviceCommandType.SOUND_ALERT,
                 "risk reason"
         );
 
@@ -63,6 +66,7 @@ class DeviceCommandCreationServiceTest {
         CommandDecision decision = service(properties, true, false, true).createIfAllowed(
                 event("event-policy"),
                 "cam-001",
+                DeviceCommandType.SOUND_ALERT,
                 "risk reason"
         );
 
@@ -77,6 +81,7 @@ class DeviceCommandCreationServiceTest {
         CommandDecision decision = service(emptyMappings, true, true, true).createIfAllowed(
                 event("event-empty-mappings"),
                 "cam-001",
+                DeviceCommandType.SOUND_ALERT,
                 "risk reason"
         );
 
@@ -89,6 +94,7 @@ class DeviceCommandCreationServiceTest {
         CommandDecision decision = service(properties, true, true, false).createIfAllowed(
                 event("event-transport"),
                 "cam-001",
+                DeviceCommandType.SOUND_ALERT,
                 "risk reason"
         );
 
@@ -101,6 +107,7 @@ class DeviceCommandCreationServiceTest {
         CommandDecision decision = service(properties, false, false, false).createIfAllowed(
                 event("event-global-blockers"),
                 "cam-001",
+                DeviceCommandType.SOUND_ALERT,
                 "risk reason"
         );
 
@@ -117,6 +124,7 @@ class DeviceCommandCreationServiceTest {
         CommandDecision decision = service.createIfAllowed(
                 event("event-unmapped"),
                 "cam-unknown",
+                DeviceCommandType.SOUND_ALERT,
                 "risk reason"
         );
 
@@ -137,6 +145,7 @@ class DeviceCommandCreationServiceTest {
         CommandDecision decision = service.createIfAllowed(
                 event("event-idle"),
                 "cam-001",
+                DeviceCommandType.DETERRENT_FULL,
                 "CLASS_SCORE_MAGPIE +30"
         );
 
@@ -150,11 +159,34 @@ class DeviceCommandCreationServiceTest {
         assertThat(command.getDeviceId()).isEqualTo("pi-001");
         assertThat(command.getCreatedAt()).isEqualTo(NOW);
         assertThat(command.getStatus()).isEqualTo(DeviceCommandStatus.CREATED);
-        assertThat(command.getCommandType()).isEqualTo("DETERRENT_LEVEL_2");
+        assertThat(command.getSource()).isEqualTo(DeviceCommandSource.AUTOMATIC);
+        assertThat(command.getCommandType()).isEqualTo(DeviceCommandType.DETERRENT_FULL);
         assertThat(command.getDurationMs()).isEqualTo(5_000);
         assertThat(command.getReason()).isEqualTo("CLASS_SCORE_MAGPIE +30");
         assertThat(command.getIssuedAt()).isEqualTo(NOW);
         assertThat(command.getExpiresAt()).isEqualTo(NOW.plusSeconds(10));
+    }
+
+    @Test
+    void createsAutomaticStopWithoutDurationWhenCallerRequestsIt() {
+        when(deviceCommandRepository.findTopByDeviceIdOrderByCreatedAtDesc("pi-001"))
+                .thenReturn(Optional.empty());
+        when(deviceCommandRepository.save(any(DeviceCommand.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.createIfAllowed(
+                event("event-stop"),
+                "cam-001",
+                DeviceCommandType.STOP_DETERRENT,
+                "ANIMAL_DISAPPEARED"
+        );
+
+        ArgumentCaptor<DeviceCommand> commandCaptor = ArgumentCaptor.forClass(DeviceCommand.class);
+        verify(deviceCommandRepository).save(commandCaptor.capture());
+        DeviceCommand command = commandCaptor.getValue();
+        assertThat(command.getSource()).isEqualTo(DeviceCommandSource.AUTOMATIC);
+        assertThat(command.getCommandType()).isEqualTo(DeviceCommandType.STOP_DETERRENT);
+        assertThat(command.getDurationMs()).isNull();
     }
 
     @Test
@@ -166,6 +198,7 @@ class DeviceCommandCreationServiceTest {
         CommandDecision decision = service.createIfAllowed(
                 event("event-cooldown"),
                 "cam-001",
+                DeviceCommandType.SOUND_ALERT,
                 "risk reason"
         );
 
@@ -187,6 +220,7 @@ class DeviceCommandCreationServiceTest {
         CommandDecision decision = service.createIfAllowed(
                 event("event-boundary"),
                 "cam-001",
+                DeviceCommandType.SOUND_ALERT,
                 "risk reason"
         );
 
@@ -200,7 +234,8 @@ class DeviceCommandCreationServiceTest {
                 "command-existing",
                 event("event-existing"),
                 "pi-001",
-                "DETERRENT_LEVEL_2",
+                DeviceCommandSource.AUTOMATIC,
+                DeviceCommandType.SOUND_ALERT,
                 5_000,
                 "legacy test reason",
                 createdAt,

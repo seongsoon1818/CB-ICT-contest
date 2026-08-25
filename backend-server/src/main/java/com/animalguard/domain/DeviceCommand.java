@@ -17,6 +17,7 @@ import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.SQLRestriction;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -28,6 +29,8 @@ import java.util.Objects;
 )
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+// V1/V2 EXPIRED audit rows keep their original legacy type in the database.
+@SQLRestriction("command_type NOT IN ('DETERRENT_LEVEL_1', 'DETERRENT_LEVEL_2', 'DETERRENT_LEVEL_3')")
 public class DeviceCommand {
 
     @Id
@@ -41,18 +44,23 @@ public class DeviceCommand {
     @Column(name = "command_id", nullable = false, updatable = false, length = 100)
     private String commandId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "event_id", nullable = false, foreignKey = @ForeignKey(name = "fk_device_commands_event"))
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "event_id", nullable = true, foreignKey = @ForeignKey(name = "fk_device_commands_event"))
     private DetectionEvent event;
 
     @Column(name = "device_id", nullable = false, length = 100)
     private String deviceId;
 
-    @Column(name = "command_type", nullable = false, length = 100)
-    private String commandType;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "command_source", nullable = false, length = 20)
+    private DeviceCommandSource source;
 
-    @Column(name = "duration_ms", nullable = false)
-    private int durationMs;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "command_type", nullable = false, length = 100)
+    private DeviceCommandType commandType;
+
+    @Column(name = "duration_ms")
+    private Integer durationMs;
 
     @Column(name = "reason", nullable = false, length = 500)
     private String reason;
@@ -101,19 +109,21 @@ public class DeviceCommand {
             String commandId,
             DetectionEvent event,
             String deviceId,
-            String commandType,
-            int durationMs,
+            DeviceCommandSource source,
+            DeviceCommandType commandType,
+            Integer durationMs,
             String reason,
             Instant issuedAt,
             Instant expiresAt
     ) {
         this.commandId = requireText(commandId, "commandId");
-        this.event = Objects.requireNonNull(event, "event must not be null");
         this.deviceId = requireText(deviceId, "deviceId");
-        this.commandType = requireText(commandType, "commandType");
-        if (durationMs <= 0) {
-            throw new IllegalArgumentException("durationMs must be positive");
-        }
+        this.source = Objects.requireNonNull(source, "source must not be null");
+        this.commandType = Objects.requireNonNull(commandType, "commandType must not be null");
+        validateSourceAndCommandType(source, commandType);
+        validateEvent(source, event);
+        validateDuration(commandType, durationMs);
+        this.event = event;
         this.durationMs = durationMs;
         this.reason = requireText(reason, "reason");
         if (reason.length() > 500) {
@@ -126,6 +136,55 @@ public class DeviceCommand {
         }
         this.status = DeviceCommandStatus.CREATED;
         this.createdAt = issuedAt;
+    }
+
+    private static void validateSourceAndCommandType(
+            DeviceCommandSource source,
+            DeviceCommandType commandType
+    ) {
+        boolean allowed = switch (source) {
+            case AUTOMATIC -> switch (commandType) {
+                case SOUND_ALERT, DETERRENT_FULL, STOP_DETERRENT -> true;
+                case ROTATE_CAMERA_LEFT, ROTATE_CAMERA_RIGHT -> false;
+            };
+            case MANUAL -> switch (commandType) {
+                case ROTATE_CAMERA_LEFT, ROTATE_CAMERA_RIGHT, STOP_DETERRENT -> true;
+                case SOUND_ALERT, DETERRENT_FULL -> false;
+            };
+        };
+        if (!allowed) {
+            throw new IllegalArgumentException(
+                    "commandType " + commandType + " is not allowed for source " + source
+            );
+        }
+    }
+
+    private static void validateEvent(DeviceCommandSource source, DetectionEvent event) {
+        if (source == DeviceCommandSource.AUTOMATIC && event == null) {
+            throw new IllegalArgumentException("event must not be null for AUTOMATIC commands");
+        }
+        if (source == DeviceCommandSource.MANUAL && event != null) {
+            throw new IllegalArgumentException("event must be null for MANUAL commands");
+        }
+    }
+
+    private static void validateDuration(DeviceCommandType commandType, Integer durationMs) {
+        switch (commandType) {
+            case SOUND_ALERT, DETERRENT_FULL -> {
+                if (durationMs == null || durationMs <= 0) {
+                    throw new IllegalArgumentException(
+                            "durationMs must be positive for " + commandType
+                    );
+                }
+            }
+            case ROTATE_CAMERA_LEFT, ROTATE_CAMERA_RIGHT, STOP_DETERRENT -> {
+                if (durationMs != null) {
+                    throw new IllegalArgumentException(
+                            "durationMs must be null for " + commandType
+                    );
+                }
+            }
+        }
     }
 
     public void markPublished(Instant at) {

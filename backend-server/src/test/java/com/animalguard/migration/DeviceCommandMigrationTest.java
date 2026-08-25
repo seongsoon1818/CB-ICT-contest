@@ -17,7 +17,7 @@ class DeviceCommandMigrationTest {
     private static final OffsetDateTime CREATED_AT = OffsetDateTime.parse("2026-08-25T03:00:00Z");
 
     @Test
-    void expiresExistingV1CommandBeforeAddingRequiredDeliveryFields() {
+    void preservesExpiredLegacyCommandWhileAligningCurrentCommandSchema() {
         DataSource dataSource = dataSource();
         Flyway.configure()
                 .dataSource(dataSource)
@@ -83,6 +83,14 @@ class DeviceCommandMigrationTest {
                 "SELECT reason FROM device_commands WHERE command_id = 'legacy-command-001'",
                 String.class
         )).isEqualTo("LEGACY_PRE_MQTT_COMMAND");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT command_type FROM device_commands WHERE command_id = 'legacy-command-001'",
+                String.class
+        )).isEqualTo("DETERRENT_LEVEL_2");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT command_source FROM device_commands WHERE command_id = 'legacy-command-001'",
+                String.class
+        )).isEqualTo("AUTOMATIC");
         assertTimestampEqualsCreatedAt(jdbcTemplate, "issued_at");
         assertTimestampEqualsCreatedAt(jdbcTemplate, "expires_at");
         assertTimestampEqualsCreatedAt(jdbcTemplate, "expired_at");
@@ -94,11 +102,37 @@ class DeviceCommandMigrationTest {
                 "SELECT acknowledged_reported_at, executed_reported_at, failed_reported_at, "
                         + "expired_reported_at FROM device_commands WHERE command_id = 'legacy-command-001'"
         ).values()).containsOnlyNulls();
+
+        jdbcTemplate.update(
+                """
+                INSERT INTO device_commands (
+                    command_id, event_id, device_id, command_source, command_type,
+                    duration_ms, reason, issued_at, expires_at, status, created_at, version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                "manual-command-001",
+                null,
+                "pi-001",
+                "MANUAL",
+                "ROTATE_CAMERA_LEFT",
+                null,
+                "USER_REQUEST",
+                CREATED_AT,
+                CREATED_AT.plusSeconds(10),
+                "CREATED",
+                CREATED_AT,
+                0
+        );
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM device_commands WHERE command_id = 'manual-command-001' "
+                        + "AND event_id IS NULL AND duration_ms IS NULL",
+                Integer.class
+        )).isEqualTo(1);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM \"flyway_schema_history\" "
-                        + "WHERE \"version\" IN ('1', '2') AND \"success\" = TRUE",
+                        + "WHERE \"version\" IN ('1', '2', '3') AND \"success\" = TRUE",
                 Integer.class
-        )).isEqualTo(2);
+        )).isEqualTo(3);
     }
 
     private void assertTimestampEqualsCreatedAt(JdbcTemplate jdbcTemplate, String column) {
