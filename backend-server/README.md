@@ -10,6 +10,14 @@ POST /api/v1/detection/events
 
 요청은 `model`과 `detections`를 포함합니다. 각 탐지는 `classCode`를 사용하며 `eventId`가 이미 저장되어 있으면 `409 Conflict`를 반환합니다.
 
+정상 응답은 기존 `eventId`, `riskScore`, `riskLevel`, 선택적 `commandId`를 유지하면서 `commandOutcome`과 `commandBlockers`를 항상 포함합니다.
+
+- `NOT_REQUESTED`: LOW/MEDIUM이라 명령 생성 대상이 아니며 blocker가 없습니다.
+- `CREATED`: DeviceCommand가 저장됐고 기존 `commandId`가 포함됩니다.
+- `SUPPRESSED`: HIGH이지만 운영 조건 때문에 명령을 만들지 않았으며 `CAMERA_UNMAPPED` 또는 `COOLDOWN_ACTIVE` blocker가 포함됩니다.
+
+현재 suppression 판정은 Detection Event API 응답과 event당 한 건의 Backend 명령 판정 로그로만 진단합니다. DB에는 별도 저장하지 않으므로 durable audit이 필요하면 별도 schema와 migration을 설계해야 합니다. DB 저장 실패나 잘못된 Entity 불변식 같은 시스템 오류는 `SUPPRESSED`로 변환하지 않습니다.
+
 ## 위험도 설정
 
 `application.yml`의 `animalguard.risk`에서 class score, 탐지 수 threshold와 점수, confidence threshold와 점수, LOW/MEDIUM/HIGH 경계를 설정합니다. 설정 범위를 벗어난 값이나 역전된 위험도 경계는 애플리케이션 시작 시 거부됩니다. 운영 기본 class score는 현재 `MAGPIE: 30`, `UNKNOWN: 0`만 정의하며 다른 유해동물의 운영 점수는 확정하지 않았습니다.
@@ -35,7 +43,7 @@ HIGH 위험 이벤트가 들어오면 매핑된 deviceId의 최신 `device_comma
 - `latest.createdAt + cooldown > now`이면 `COOLDOWN`입니다.
 - `latest.createdAt + cooldown <= now`이면 다시 `IDLE`입니다.
 
-`IDLE`에서는 `CREATED` command를 저장하고 응답에 `commandId`를 포함합니다. 새 command는 RiskDecision의 원본 `reason`, 서버 Clock의 `issuedAt`, `issuedAt + commandTtl`인 `expiresAt`을 저장하며 DB record 생성 시각 `createdAt`은 현재 MVP에서 `issuedAt`과 같습니다. reason이 500자를 넘으면 truncate하지 않고 생성을 거절합니다. `COOLDOWN`에서는 새 command와 응답의 `commandId`만 생략하고 DetectionEvent, AnimalDetection, RiskDecision은 그대로 저장합니다. 매핑되지 않은 cameraId도 같은 감사 기록을 저장하되 cameraId를 deviceId로 fallback하지 않고 WARN 로그와 함께 command를 억제합니다. LOW/MEDIUM 이벤트는 command를 만들지 않으며 기존 cooldown을 갱신하지 않습니다.
+`IDLE`에서는 `CREATED` command를 저장하고 응답에 `commandId`를 포함합니다. 새 command는 RiskDecision의 원본 `reason`, 서버 Clock의 `issuedAt`, `issuedAt + commandTtl`인 `expiresAt`을 저장하며 DB record 생성 시각 `createdAt`은 현재 MVP에서 `issuedAt`과 같습니다. reason이 500자를 넘으면 truncate하지 않고 생성을 거절합니다. `COOLDOWN`에서는 `SUPPRESSED/COOLDOWN_ACTIVE`, 매핑되지 않은 cameraId에서는 `SUPPRESSED/CAMERA_UNMAPPED`를 반환하고 DeviceCommand만 만들지 않습니다. 두 경로 모두 DetectionEvent, AnimalDetection, RiskDecision은 그대로 저장합니다. cameraId를 deviceId로 fallback하지 않습니다. LOW/MEDIUM 이벤트는 `NOT_REQUESTED`이며 command 생성 서비스를 호출하지 않고 기존 cooldown도 갱신하지 않습니다.
 
 별도 상태 테이블이나 scheduler는 없습니다. `device_commands.created_at`이 source of truth이므로 애플리케이션 재시작 후에도 다음 이벤트에서 cooldown을 다시 계산합니다. cooldown은 카메라의 `capturedAt`이 아니라 Backend가 실제 command를 생성한 서버 시각을 기준으로 하며, 지연되거나 순서가 뒤바뀐 Detection Event가 장치 명령 간격을 왜곡하지 않도록 합니다.
 
