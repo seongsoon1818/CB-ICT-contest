@@ -169,21 +169,16 @@ public class DeviceCommand {
     }
 
     private static void validateDuration(DeviceCommandType commandType, Integer durationMs) {
-        switch (commandType) {
-            case SOUND_ALERT, DETERRENT_FULL -> {
-                if (durationMs == null || durationMs <= 0) {
-                    throw new IllegalArgumentException(
-                            "durationMs must be positive for " + commandType
-                    );
-                }
-            }
-            case ROTATE_CAMERA_LEFT, ROTATE_CAMERA_RIGHT, STOP_DETERRENT -> {
-                if (durationMs != null) {
-                    throw new IllegalArgumentException(
-                            "durationMs must be null for " + commandType
-                    );
-                }
-            }
+        String violation = switch (commandType) {
+            case SOUND_ALERT, DETERRENT_FULL -> durationMs == null || durationMs <= 0
+                    ? "durationMs must be positive for " + commandType
+                    : null;
+            case ROTATE_CAMERA_LEFT, ROTATE_CAMERA_RIGHT, STOP_DETERRENT -> durationMs != null
+                    ? "durationMs must be null for " + commandType
+                    : null;
+        };
+        if (violation != null) {
+            throw new IllegalArgumentException(violation);
         }
     }
 

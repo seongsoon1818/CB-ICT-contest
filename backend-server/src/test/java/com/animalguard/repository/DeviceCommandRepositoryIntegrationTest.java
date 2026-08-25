@@ -1,5 +1,6 @@
 package com.animalguard.repository;
 
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -21,6 +22,9 @@ class DeviceCommandRepositoryIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Test
     void preservesLegacyAuditRowWithoutMaterializingItAsCurrentEnumEntity() {
@@ -73,6 +77,14 @@ class DeviceCommandRepositoryIntegrationTest {
                 String.class,
                 "legacy-command-repository-test"
         )).isEqualTo("DETERRENT_LEVEL_2");
+        Long legacyCommandId = jdbcTemplate.queryForObject(
+                "SELECT id FROM device_commands WHERE command_id = ?",
+                Long.class,
+                "legacy-command-repository-test"
+        );
+
+        entityManager.clear();
+        assertThat(deviceCommandRepository.findById(legacyCommandId)).isEmpty();
         assertThat(deviceCommandRepository.findTopByDeviceIdOrderByCreatedAtDesc("pi-legacy"))
                 .isEmpty();
     }
