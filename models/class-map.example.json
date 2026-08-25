@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "animalguard-class-map-v1",
+  "classes": [
+    {
+      "id": 0,
+      "classCode": "MAGPIE"
+    },
+    {
+      "id": 1,
+      "classCode": "WILD_BOAR"
+    }
+  ],
+  "unknownClassCode": "UNKNOWN"
+}
