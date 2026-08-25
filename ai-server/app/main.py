@@ -5,13 +5,18 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 
 from app.backend_client import BackendClient, BackendConflict, BackendUnavailable
-from app.inference import DETECTOR_VERSION, InvalidJpegError, MockInference, decode_jpeg
-from app.schemas import DetectionEvent, ImageInfo, ModelInfo
+from app.inference import (
+    DETECTOR_VERSION,
+    FrameTooLargeError,
+    InvalidJpegError,
+    MockInference,
+    decode_jpeg,
+)
+from app.schemas import CAMERA_ID_PATTERN, DetectionEvent, ImageInfo, ModelInfo
 from app.settings import Settings
 
 
 MAX_JPEG_BYTES = 5 * 1024 * 1024
-CAMERA_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
 
 
 class BackendClientLike(Protocol):
@@ -53,7 +58,8 @@ def create_app(
         ],
         capturedAt: Annotated[datetime, Form()],
     ) -> dict[str, Any]:
-        if frame.content_type != "image/jpeg":
+        frame_media_type = (frame.content_type or "").partition(";")[0]
+        if frame_media_type.strip().lower() != "image/jpeg":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="frame must use image/jpeg Content-Type",
@@ -78,6 +84,11 @@ def create_app(
 
         try:
             width, height = decode_jpeg(frame_bytes)
+        except FrameTooLargeError as error:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=str(error),
+            ) from error
         except InvalidJpegError as error:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
