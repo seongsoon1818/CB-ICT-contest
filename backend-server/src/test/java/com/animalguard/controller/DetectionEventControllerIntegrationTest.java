@@ -110,6 +110,11 @@ class DetectionEventControllerIntegrationTest {
         assertThat(deviceCommandRepository.findAll().get(0).getStatus())
                 .isEqualTo(DeviceCommandStatus.CREATED);
         assertThat(deviceCommandRepository.findAll().get(0).getDeviceId()).isEqualTo("pi-001");
+        assertThat(deviceCommandRepository.findAll().get(0).getReason())
+                .isEqualTo("CLASS_SCORE_MAGPIE +25, DETECTION_COUNT_GE_3 +25, CONFIDENCE_GE_0_9 +20, "
+                        + "INSIDE_FIELD_NOT_EVALUATED");
+        assertThat(deviceCommandRepository.findAll().get(0).getIssuedAt()).isEqualTo(TEST_NOW);
+        assertThat(deviceCommandRepository.findAll().get(0).getExpiresAt()).isEqualTo(TEST_NOW.plusSeconds(10));
     }
 
     @Test

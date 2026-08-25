@@ -29,6 +29,7 @@ server:
 animalguard:
   device-control:
     cooldown: ${DEVICE_COMMAND_COOLDOWN:20s}
+    command-ttl: ${DEVICE_COMMAND_TTL:10s}
     camera-device-mappings: {}
   risk:
     class-scores:

@@ -39,14 +39,18 @@ class DeviceCommandCreationServiceTest {
     void setUp() {
         service = new DeviceCommandCreationService(
                 deviceCommandRepository,
-                new DeviceControlProperties(Duration.ofSeconds(20), Map.of("cam-001", "pi-001")),
+                new DeviceControlProperties(
+                        Duration.ofSeconds(20),
+                        Duration.ofSeconds(10),
+                        Map.of("cam-001", "pi-001")
+                ),
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
 
     @Test
     void suppressesCommandForUnmappedCamera() {
-        assertThat(service.createIfAllowed(event("event-unmapped"), "cam-unknown")).isEmpty();
+        assertThat(service.createIfAllowed(event("event-unmapped"), "cam-unknown", "risk reason")).isEmpty();
 
         verifyNoInteractions(deviceCommandRepository);
     }
@@ -58,13 +62,20 @@ class DeviceCommandCreationServiceTest {
         when(deviceCommandRepository.save(any(DeviceCommand.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        DeviceCommand command = service.createIfAllowed(event("event-idle"), "cam-001").orElseThrow();
+        DeviceCommand command = service.createIfAllowed(
+                event("event-idle"),
+                "cam-001",
+                "CLASS_SCORE_MAGPIE +30"
+        ).orElseThrow();
 
         assertThat(command.getDeviceId()).isEqualTo("pi-001");
         assertThat(command.getCreatedAt()).isEqualTo(NOW);
         assertThat(command.getStatus()).isEqualTo(DeviceCommandStatus.CREATED);
         assertThat(command.getCommandType()).isEqualTo("DETERRENT_LEVEL_2");
         assertThat(command.getDurationMs()).isEqualTo(5_000);
+        assertThat(command.getReason()).isEqualTo("CLASS_SCORE_MAGPIE +30");
+        assertThat(command.getIssuedAt()).isEqualTo(NOW);
+        assertThat(command.getExpiresAt()).isEqualTo(NOW.plusSeconds(10));
     }
 
     @Test
@@ -73,7 +84,7 @@ class DeviceCommandCreationServiceTest {
         when(deviceCommandRepository.findTopByDeviceIdOrderByCreatedAtDesc("pi-001"))
                 .thenReturn(Optional.of(latest));
 
-        assertThat(service.createIfAllowed(event("event-cooldown"), "cam-001")).isEmpty();
+        assertThat(service.createIfAllowed(event("event-cooldown"), "cam-001", "risk reason")).isEmpty();
 
         verify(deviceCommandRepository, never()).save(any(DeviceCommand.class));
     }
@@ -86,7 +97,7 @@ class DeviceCommandCreationServiceTest {
         when(deviceCommandRepository.save(any(DeviceCommand.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        assertThat(service.createIfAllowed(event("event-boundary"), "cam-001")).isPresent();
+        assertThat(service.createIfAllowed(event("event-boundary"), "cam-001", "risk reason")).isPresent();
     }
 
     private DeviceCommand commandCreatedAt(Instant createdAt) {
@@ -96,8 +107,9 @@ class DeviceCommandCreationServiceTest {
                 "pi-001",
                 "DETERRENT_LEVEL_2",
                 5_000,
-                DeviceCommandStatus.CREATED,
-                createdAt
+                "legacy test reason",
+                createdAt,
+                createdAt.plusSeconds(10)
         );
     }
 

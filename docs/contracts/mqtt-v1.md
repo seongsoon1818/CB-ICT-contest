@@ -30,7 +30,7 @@ deviceId is the stable identifier in the topic and payload. Topic path values mu
   "durationMs": 5000,
   "issuedAt": "2026-08-21T07:00:03Z",
   "expiresAt": "2026-08-21T07:00:13Z",
-  "reason": "HIGH_RISK_MAGPIE"
+  "reason": "CLASS_SCORE_MAGPIE +30, DETECTION_COUNT_GE_3 +20"
 }
 ~~~
 
@@ -42,7 +42,7 @@ Rules:
 - durationMs is a positive duration in milliseconds.
 - issuedAt and expiresAt use ISO 8601 / RFC 3339 date-time with an explicit timezone.
 - expiresAt must be later than issuedAt. Raspberry Pi must not execute a command after expiresAt.
-- reason is a short, auditable Backend reason and does not replace the risk decision record.
+- reason is the detailed, auditable Backend risk assessment copied from the risk decision. It does not replace the risk decision record.
 - Command messages use QoS 1 by default and are not retained. A retained command could be executed unexpectedly after reconnect.
 
 ## ACK payload
@@ -56,7 +56,9 @@ Rules:
 }
 ~~~
 
-The ACK status is one of ACKNOWLEDGED, EXECUTED, FAILED, or EXPIRED. A device publishes an ACK after processing a command. If a duplicate commandId is received, the device does not actuate again; it may publish the previously recorded ACK again.
+The ACK status is one of ACKNOWLEDGED, EXECUTED, FAILED, or EXPIRED. The payload contains exactly one matching device-reported timestamp: `acknowledgedAt`, `executedAt`, `failedAt`, or `expiredAt`. A device publishes an ACK after processing a command. If a duplicate commandId is received, the device does not actuate again; it may publish the previously recorded ACK again.
+
+Device-reported timestamps and Backend receipt timestamps are different clocks. Backend stores the device value in the matching `*_reported_at` column and its own receipt/decision time in `acknowledged_at`, `executed_at`, `failed_at`, or `expired_at`. State ordering uses only Backend timestamps; it never compares a Raspberry Pi clock directly with the Backend clock. A device timestamp earlier than `published_at` is therefore valid when the ACK is received in the correct Backend state.
 
 ## Status payload
 
@@ -100,7 +102,9 @@ Failure or expiry can occur before execution:
 - CREATED or PUBLISHED → EXPIRED when the expiry time passes before execution.
 - EXECUTED, FAILED, and EXPIRED are terminal for that command.
 
-Backend first evaluates the Detection Event, risk state machine, device/camera-scoped cooldown, and safety conditions. Only after those checks pass does it persist a command as CREATED and publish it. MQTT does not bypass the state machine or cooldown.
+Backend first evaluates the Detection Event, risk state machine, device/camera-scoped cooldown, and safety conditions. Only after those checks pass does it persist a command as CREATED. MQTT does not bypass the state machine or cooldown.
+
+For the MVP Publisher, `PUBLISHED` means dispatch was authorized and the publish attempt began; it does not prove broker delivery. Backend commits `PUBLISHED` before invoking the MQTT client so an immediate ACK cannot observe a `CREATED` row. An immediate publish failure is recorded as `FAILED`. A process crash after the commit but before or during the MQTT call can leave `PUBLISHED` without delivery; reconciliation for that crash window is a follow-up requirement.
 
 ## Scope and safety rules
 
@@ -108,6 +112,7 @@ Backend first evaluates the Detection Event, risk state machine, device/camera-s
 - Backend does not send GPIO numbers, PWM values, or raw actuator wiring instructions.
 - Raspberry Pi maps the semantic command to local GPIO behavior and rejects expired commands before actuation.
 - QoS 1 provides at-least-once delivery, so commandId deduplication is mandatory.
+- Backend uses optimistic locking for concurrent command-state writers. A database optimistic-lock conflict must not trigger another MQTT publish; the handler reloads state and treats the same or already-advanced result as idempotent, while conflicting terminal state is rejected and logged.
 - Commands are not retained. The retain policy for status and sensor events may be finalized with the broker deployment, but it must not change command idempotency or expiry semantics.
 - ACK, status, and sensor-event timestamps include timezones; Backend stores server receipt times for audit.
 - Authentication, authorization, TLS, and broker ACL configuration are deployment concerns and are not implemented in Phase 0.

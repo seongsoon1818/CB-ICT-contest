@@ -3,7 +3,6 @@ package com.animalguard.service;
 import com.animalguard.config.DeviceControlProperties;
 import com.animalguard.domain.DetectionEvent;
 import com.animalguard.domain.DeviceCommand;
-import com.animalguard.domain.DeviceCommandStatus;
 import com.animalguard.repository.DeviceCommandRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,7 +29,7 @@ public class DeviceCommandCreationService {
     private final Clock clock;
     private final ReentrantLock commandGate = new ReentrantLock(true);
 
-    public Optional<DeviceCommand> createIfAllowed(DetectionEvent event, String cameraId) {
+    public Optional<DeviceCommand> createIfAllowed(DetectionEvent event, String cameraId, String reason) {
         String deviceId = properties.cameraDeviceMappings().get(cameraId);
         if (deviceId == null) {
             log.warn("Device command suppressed: unmapped cameraId={}", cameraId);
@@ -71,8 +70,9 @@ public class DeviceCommandCreationService {
                     deviceId,
                     COMMAND_TYPE,
                     COMMAND_DURATION_MS,
-                    DeviceCommandStatus.CREATED,
-                    now
+                    reason,
+                    now,
+                    now.plus(properties.commandTtl())
             ));
             log.info("Device command created: commandId={}, eventId={}, deviceId={}, commandType={}",
                     command.getCommandId(), event.getEventId(), deviceId, COMMAND_TYPE);
