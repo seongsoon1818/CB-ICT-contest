@@ -18,6 +18,7 @@ class DeviceControlPropertiesBindingTest {
             .withUserConfiguration(DeviceControlPropertiesConfiguration.class)
             .withPropertyValues(
                     "animalguard.device-control.cooldown=20s",
+                    "animalguard.device-control.command-ttl=10s",
                     "animalguard.device-control.camera-device-mappings.cam-001=pi-001"
             );
 
@@ -27,6 +28,7 @@ class DeviceControlPropertiesBindingTest {
             assertThat(context).hasNotFailed();
             DeviceControlProperties properties = context.getBean(DeviceControlProperties.class);
             assertThat(properties.cooldown()).isEqualTo(Duration.ofSeconds(20));
+            assertThat(properties.commandTtl()).isEqualTo(Duration.ofSeconds(10));
             assertThat(properties.cameraDeviceMappings())
                     .containsExactlyEntriesOf(Map.of("cam-001", "pi-001"));
         });
@@ -37,6 +39,18 @@ class DeviceControlPropertiesBindingTest {
     void rejectsNonPositiveCooldown(String cooldown) {
         contextRunner
                 .withPropertyValues("animalguard.device-control.cooldown=" + cooldown)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasMessageContaining("Could not bind properties");
+                });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0s", "-1s"})
+    void rejectsNonPositiveCommandTtl(String commandTtl) {
+        contextRunner
+                .withPropertyValues("animalguard.device-control.command-ttl=" + commandTtl)
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())
