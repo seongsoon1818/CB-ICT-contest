@@ -1,6 +1,7 @@
 package com.animalguard.service;
 
 import com.animalguard.config.DeviceControlProperties;
+import com.animalguard.domain.ActuationBlocker;
 import com.animalguard.domain.DetectionEvent;
 import com.animalguard.domain.DeviceCommand;
 import com.animalguard.repository.DeviceCommandRepository;
@@ -12,6 +13,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
@@ -29,11 +31,10 @@ public class DeviceCommandCreationService {
     private final Clock clock;
     private final ReentrantLock commandGate = new ReentrantLock(true);
 
-    public Optional<DeviceCommand> createIfAllowed(DetectionEvent event, String cameraId, String reason) {
+    public CommandDecision createIfAllowed(DetectionEvent event, String cameraId, String reason) {
         String deviceId = properties.cameraDeviceMappings().get(cameraId);
         if (deviceId == null) {
-            log.warn("Device command suppressed: unmapped cameraId={}", cameraId);
-            return Optional.empty();
+            return CommandDecision.suppressed(List.of(ActuationBlocker.CAMERA_UNMAPPED));
         }
 
         commandGate.lock();
@@ -61,7 +62,7 @@ public class DeviceCommandCreationService {
                         latest.getCommandId(),
                         latest.getCreatedAt().plus(properties.cooldown())
                 );
-                return Optional.empty();
+                return CommandDecision.suppressed(List.of(ActuationBlocker.COOLDOWN_ACTIVE));
             }
 
             DeviceCommand command = deviceCommandRepository.save(new DeviceCommand(
@@ -74,9 +75,7 @@ public class DeviceCommandCreationService {
                     now,
                     now.plus(properties.commandTtl())
             ));
-            log.info("Device command created: commandId={}, eventId={}, deviceId={}, commandType={}",
-                    command.getCommandId(), event.getEventId(), deviceId, COMMAND_TYPE);
-            return Optional.of(command);
+            return CommandDecision.created(command.getCommandId());
         } finally {
             if (releaseOnReturn) {
                 commandGate.unlock();
