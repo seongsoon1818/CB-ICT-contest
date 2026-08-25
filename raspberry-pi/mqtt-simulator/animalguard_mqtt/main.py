@@ -52,11 +52,12 @@ def main() -> int:
             raise RuntimeError(f"MQTT broker 연결 요청 실패: rc={result}")
         client.loop_start()
         while not stop_event.wait(settings.status_interval_seconds):
-            _publish_status(client, settings.device_id, "ONLINE")
+            _publish_status_safely(client, settings.device_id, "ONLINE")
     finally:
         if client.is_connected():
-            info = _publish_status(client, settings.device_id, "OFFLINE")
-            info.wait_for_publish(timeout=5)
+            info = _publish_status_safely(client, settings.device_id, "OFFLINE")
+            if info is not None:
+                info.wait_for_publish(timeout=5)
             client.disconnect()
         client.loop_stop()
         store.close()
@@ -69,6 +70,15 @@ def _build_client(
     client = mqtt.Client(
         callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
         client_id=f"animalguard-mqtt-simulator-{settings.device_id}",
+    )
+    offline_payload = build_status_payload(
+        settings.device_id, "OFFLINE", datetime.now(UTC)
+    )
+    client.will_set(
+        status_topic(settings.device_id),
+        json.dumps(offline_payload, separators=(",", ":"), ensure_ascii=False),
+        qos=QOS,
+        retain=True,
     )
 
     def on_connect(
@@ -88,7 +98,7 @@ def _build_client(
             LOGGER.error("command topic 구독 실패: topic=%s rc=%s", topic, result)
             return
         LOGGER.info("command topic 구독: topic=%s qos=%d", topic, QOS)
-        _publish_status(connected_client, settings.device_id, "ONLINE")
+        _publish_status_safely(connected_client, settings.device_id, "ONLINE")
 
     def on_message(
         connected_client: mqtt.Client, userdata: Any, message: mqtt.MQTTMessage
@@ -125,6 +135,16 @@ def _publish_status(
 ) -> mqtt.MQTTMessageInfo:
     payload = build_status_payload(device_id, status, datetime.now(UTC))
     return _publish_json(client, status_topic(device_id), payload, retain=True)
+
+
+def _publish_status_safely(
+    client: mqtt.Client, device_id: str, status: str
+) -> mqtt.MQTTMessageInfo | None:
+    try:
+        return _publish_status(client, device_id, status)
+    except RuntimeError as exc:
+        LOGGER.warning("MQTT status 발행 실패, 재연결 대기: %s", exc)
+        return None
 
 
 def _publish_json(

@@ -35,7 +35,7 @@ Device ID가 `pi-001`이면 다음 topic을 사용합니다.
 
 command와 ACK는 QoS 1이며 retain하지 않습니다. QoS 0이거나 retained delivery인 command는 실행하지 않고, 식별자가 유효하면 FAILED로 저장·발행합니다. Simulator는 command topic에 payload의 `deviceId`와 같은 설정값을 사용합니다. Device ID에 topic 구분자나 공백이 있으면 하나의 topic segment가 되도록 percent-encoding합니다.
 
-연결 성공 시 ONLINE을 발행하고 설정 주기마다 heartbeat를 보냅니다. 정상 종료 시 OFFLINE을 발행합니다. 로컬 개발 편의를 위해 status만 retain합니다. 이 선택은 운영 retain 정책을 확정하는 것이 아닙니다.
+연결 성공 시 ONLINE을 발행하고 설정 주기마다 heartbeat를 보냅니다. 정상 종료 시 OFFLINE을 발행하고, 연결이 비정상적으로 끊기면 broker가 retained OFFLINE Last Will을 발행합니다. Last Will의 `reportedAt`은 연결 설정 시각이므로 Backend는 계약에 따라 별도 수신 시각을 기록해야 합니다. 일시적인 heartbeat 발행 실패는 경고로 남기고 paho-mqtt의 재연결을 기다립니다. 로컬 개발 편의를 위해 status만 retain합니다. 이 선택은 운영 retain 정책을 확정하는 것이 아닙니다.
 
 ## Command 검증과 중복 방지
 
