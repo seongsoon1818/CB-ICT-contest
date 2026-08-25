@@ -50,16 +50,24 @@ cd backend-server
 SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ```
 
-`local` 프로필에서만 로컬 datasource 기본값과 Hibernate schema update를 사용합니다. 기본 database, username, password는 `animalguard`입니다. 테스트는 외부 PostgreSQL 없이 H2의 `animalguard` 메모리 데이터베이스를 사용합니다.
-
-기본 프로필은 datasource 환경 변수 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`를 요구하고 기존 스키마를 변경하지 않은 채 `ddl-auto=validate`로 검증합니다. 이번 단계에는 baseline·rename·backfill migration이 없으므로 non-local 배포를 지원하지 않습니다. migration 수단을 마련하기 전에는 기존 BirdGuard DB에 이 애플리케이션을 직접 기동하지 않습니다.
+`local` 프로필은 로컬 datasource 기본값을 제공하며 기본 database, username, password는 `animalguard`입니다. 모든 프로필은 Flyway migration으로 schema를 만든 뒤 Hibernate `ddl-auto=validate`로 Entity 정합성만 검증합니다. 테스트는 외부 PostgreSQL 없이 H2 PostgreSQL mode를 사용하지만 schema는 Hibernate `create-drop`이 아니라 동일한 Flyway migration으로 생성합니다.
 
 ```bash
 ./gradlew test
 ```
 
-로컬 개발 DB 기본 이름과 volume 이름이 변경되므로 기존 테스트 데이터는 자동 이전되지 않습니다. 필요한 경우 기존 로컬 volume을 수동으로 정리한 뒤 새 환경을 시작해야 합니다.
+## 데이터베이스 schema 관리
+
+`src/main/resources/db/migration`의 Flyway migration이 schema 변경의 source of truth입니다. `V1__baseline_animalguard_schema.sql`은 현재 AnimalGuard JPA Entity의 다섯 테이블만 생성합니다. Flyway는 모든 프로필에서 활성화되고 `baseline-on-migrate=false`, `clean-disabled=true`가 기본값이므로 migration 이력이 없는 non-empty schema를 정상 schema로 조용히 간주하지 않으며 migration 실패 시 애플리케이션 시작도 실패합니다.
+
+지원하는 기본 경로는 빈 AnimalGuard DB에서 V1부터 적용하는 방식입니다.
+
+- 중요한 데이터가 없는 기존 local volume은 먼저 필요한 내용을 백업한 뒤 `animalguard-postgres-data` volume을 삭제하고 fresh DB로 재생성합니다.
+- 기존 데이터를 반드시 보존해야 하면 먼저 백업하고 현재 schema가 V1과 정확히 같은지 수동으로 확인한 뒤, 별도로 승인된 일회성 baseline 절차를 사용합니다. `baseline-on-migrate=true`는 local 기본값이 아니며 자동 도입이나 안전한 이전을 보장하지 않습니다.
+- BirdGuard 이름이 남은 schema, `bird_detections`가 있는 schema, `classification_confidence`가 `NOT NULL`인 오래된 schema, 알 수 없는 수동 변경이 있는 schema는 자동 도입 대상이 아닙니다. 실제 이전 요구가 확인되면 별도 migration 작업으로 다룹니다.
+
+기본 프로필은 datasource 환경 변수 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`를 요구합니다. 기존 BirdGuard DB에 이 애플리케이션을 직접 기동하지 않습니다.
 
 `classification_confidence` nullable 변경 전에 생성한 `animalguard-postgres-data` volume은 Hibernate schema update가 기존 `NOT NULL` 제약을 제거하지 않으므로, 필요한 데이터를 백업한 뒤 volume을 재생성해야 합니다.
 
-이번 단계에서는 AI Server, 실제 모델, MQTT Publisher/Subscriber, ACK/status 전이, GPIO 실행 코드, 전체 추적 State Machine, ROI 계산, DB migration framework를 구현하지 않습니다. DeviceCommand 상태는 `CREATED`만 사용합니다.
+이번 단계에서는 AI Server, 실제 모델, MQTT Publisher/Subscriber, ACK/status 전이, GPIO 실행 코드, 전체 추적 State Machine, ROI 계산을 구현하지 않습니다. DeviceCommand 상태는 `CREATED`만 사용합니다.
