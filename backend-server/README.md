@@ -1,6 +1,6 @@
 # Backend Server
 
-AnimalGuard의 Java 17·Spring Boot 3 Backend 서버입니다. Detection Event v1을 검증해 PostgreSQL에 저장하고, 설정 기반 Risk Engine으로 RiskDecision을 생성하며 HIGH일 때 장치별 cooldown gate를 통과한 DeviceCommand를 기록합니다.
+AnimalGuard의 Java 17·Spring Boot 3 Backend 서버입니다. Detection Event v1을 검증해 PostgreSQL에 저장하고 설정 기반 Risk Engine으로 RiskDecision을 생성합니다. 현재 automatic response policy가 없으므로 위험도만 보고 DeviceCommand type을 임의로 선택하지 않습니다.
 
 ## API
 
@@ -12,9 +12,9 @@ POST /api/v1/detection/events
 
 정상 응답은 기존 `eventId`, `riskScore`, `riskLevel`, 선택적 `commandId`를 유지하면서 `commandOutcome`과 `commandBlockers`를 항상 포함합니다.
 
-- `NOT_REQUESTED`: LOW/MEDIUM이라 명령 생성 대상이 아니며 blocker가 없습니다.
-- `CREATED`: DeviceCommand가 저장됐고 기존 `commandId`가 포함됩니다.
-- `SUPPRESSED`: HIGH이지만 안전 gate 또는 운영 조건 때문에 명령을 만들지 않았으며 하나 이상의 blocker가 포함됩니다.
+- `NOT_REQUESTED`: 현재 모든 위험도에서 policy가 command type을 선택하지 않았으며 blocker가 없습니다.
+- `CREATED`: 향후 명시적인 policy가 요청한 DeviceCommand가 저장됐고 기존 `commandId`가 포함됩니다.
+- `SUPPRESSED`: 향후 policy의 요청이 안전 gate 또는 운영 조건으로 억제됐으며 하나 이상의 blocker가 포함됩니다.
 
 현재 suppression 판정은 Detection Event API 응답과 event당 한 건의 Backend 명령 판정 로그로만 진단합니다. DB에는 별도 저장하지 않으므로 durable audit이 필요하면 별도 schema와 migration을 설계해야 합니다. DB 저장 실패나 잘못된 Entity 불변식 같은 시스템 오류는 `SUPPRESSED`로 변환하지 않습니다.
 
@@ -112,7 +112,7 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 
 ## 데이터베이스 schema 관리
 
-`src/main/resources/db/migration`의 Flyway migration이 schema 변경의 source of truth입니다. `V1__baseline_animalguard_schema.sql`은 도입 시점의 AnimalGuard JPA Entity 다섯 테이블을 만들고, `V2__prepare_device_command_mqtt_delivery.sql`은 DeviceCommand 전달 column과 `(device_id, created_at)` index를 추가합니다. Flyway는 모든 프로필에서 활성화되고 `baseline-on-migrate=false`, `clean-disabled=true`가 기본값이므로 migration 이력이 없는 non-empty schema를 정상 schema로 조용히 간주하지 않으며 migration 실패 시 애플리케이션 시작도 실패합니다.
+`src/main/resources/db/migration`의 Flyway migration이 schema 변경의 source of truth입니다. `V1__baseline_animalguard_schema.sql`은 도입 시점의 AnimalGuard JPA Entity 다섯 테이블을 만들고, `V2__prepare_device_command_mqtt_delivery.sql`은 DeviceCommand 전달 column과 `(device_id, created_at)` index를 추가합니다. `V3__align_device_command_contract.sql`은 command source를 backfill하고 manual command를 위한 nullable event/duration schema를 준비합니다. Flyway는 모든 프로필에서 활성화되고 `baseline-on-migrate=false`, `clean-disabled=true`가 기본값이므로 migration 이력이 없는 non-empty schema를 정상 schema로 조용히 간주하지 않으며 migration 실패 시 애플리케이션 시작도 실패합니다.
 
 V2 이전의 command에는 MQTT payload field와 실제 publish 이력이 없습니다. V2는 이 row를 삭제하거나 publish 가능한 `CREATED`로 남기지 않고 `status=EXPIRED`, `reason=LEGACY_PRE_MQTT_COMMAND`, `issued_at=expires_at=expired_at=created_at`으로 backfill한 뒤 required column을 `NOT NULL`로 전환합니다. 이 equality는 새 command 생성자의 `expiresAt > issuedAt` 규칙을 만족하는 정상 command를 합성하려는 것이 아니라, publish할 수 없는 legacy row를 migration 전용 terminal tombstone으로 보존한다는 뜻입니다. 장치 보고 시각은 알 수 없으므로 네 `*_reported_at` column은 `NULL`, optimistic-lock `version`은 `0`으로 시작합니다.
 
