@@ -16,17 +16,18 @@ POST /api/v1/detection/events
 
 ## 장치 명령 설정과 cooldown
 
-`animalguard.device-control`에서 cooldown과 `cameraId` → `deviceId` 매핑을 설정합니다.
+`animalguard.device-control`에서 cooldown, command TTL과 `cameraId` → `deviceId` 매핑을 설정합니다.
 
 ```yaml
 animalguard:
   device-control:
     cooldown: 20s
+    command-ttl: 10s
     camera-device-mappings:
       cam-001: pi-001
 ```
 
-cooldown은 양수여야 하며, cameraId는 Detection Event와 같은 식별자 형식을 사용하고 deviceId는 비어 있을 수 없습니다. 여러 cameraId가 같은 deviceId를 가리키는 설정은 허용합니다. cameraId에 점이 포함된 key를 명시적으로 보존하려면 YAML에서 `"[cam.001]": pi-001`처럼 대괄호를 포함한 key 전체를 따옴표로 묶습니다. 운영 기본 설정에는 실제 장치 매핑을 넣지 않고 빈 map을 사용하며, `local` 프로필에만 `cam-001: pi-001` 예시가 있습니다.
+cooldown과 command TTL은 모두 양수여야 합니다. `DEVICE_COMMAND_TTL`의 기본값은 `10s`입니다. command TTL은 Raspberry Pi가 새 command를 실행할 수 있는 payload 유효 기간이고, `durationMs`는 장치가 작동할 시간이므로 서로 다른 값입니다. cameraId는 Detection Event와 같은 식별자 형식을 사용하고 deviceId는 비어 있을 수 없습니다. 여러 cameraId가 같은 deviceId를 가리키는 설정은 허용합니다. cameraId에 점이 포함된 key를 명시적으로 보존하려면 YAML에서 `"[cam.001]": pi-001`처럼 대괄호를 포함한 key 전체를 따옴표로 묶습니다. 운영 기본 설정에는 실제 장치 매핑을 넣지 않고 빈 map을 사용하며, `local` 프로필에만 `cam-001: pi-001` 예시가 있습니다.
 
 HIGH 위험 이벤트가 들어오면 매핑된 deviceId의 최신 `device_commands` 기록으로 상태를 계산합니다.
 
@@ -34,7 +35,7 @@ HIGH 위험 이벤트가 들어오면 매핑된 deviceId의 최신 `device_comma
 - `latest.createdAt + cooldown > now`이면 `COOLDOWN`입니다.
 - `latest.createdAt + cooldown <= now`이면 다시 `IDLE`입니다.
 
-`IDLE`에서는 `CREATED` command를 저장하고 응답에 `commandId`를 포함합니다. `COOLDOWN`에서는 새 command와 응답의 `commandId`만 생략하고 DetectionEvent, AnimalDetection, RiskDecision은 그대로 저장합니다. 매핑되지 않은 cameraId도 같은 감사 기록을 저장하되 cameraId를 deviceId로 fallback하지 않고 WARN 로그와 함께 command를 억제합니다. LOW/MEDIUM 이벤트는 command를 만들지 않으며 기존 cooldown을 갱신하지 않습니다.
+`IDLE`에서는 `CREATED` command를 저장하고 응답에 `commandId`를 포함합니다. 새 command는 RiskDecision의 원본 `reason`, 서버 Clock의 `issuedAt`, `issuedAt + commandTtl`인 `expiresAt`을 저장하며 DB record 생성 시각 `createdAt`은 현재 MVP에서 `issuedAt`과 같습니다. reason이 500자를 넘으면 truncate하지 않고 생성을 거절합니다. `COOLDOWN`에서는 새 command와 응답의 `commandId`만 생략하고 DetectionEvent, AnimalDetection, RiskDecision은 그대로 저장합니다. 매핑되지 않은 cameraId도 같은 감사 기록을 저장하되 cameraId를 deviceId로 fallback하지 않고 WARN 로그와 함께 command를 억제합니다. LOW/MEDIUM 이벤트는 command를 만들지 않으며 기존 cooldown을 갱신하지 않습니다.
 
 별도 상태 테이블이나 scheduler는 없습니다. `device_commands.created_at`이 source of truth이므로 애플리케이션 재시작 후에도 다음 이벤트에서 cooldown을 다시 계산합니다. cooldown은 카메라의 `capturedAt`이 아니라 Backend가 실제 command를 생성한 서버 시각을 기준으로 하며, 지연되거나 순서가 뒤바뀐 Detection Event가 장치 명령 간격을 왜곡하지 않도록 합니다.
 
@@ -58,7 +59,9 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 
 ## 데이터베이스 schema 관리
 
-`src/main/resources/db/migration`의 Flyway migration이 schema 변경의 source of truth입니다. `V1__baseline_animalguard_schema.sql`은 현재 AnimalGuard JPA Entity의 다섯 테이블만 생성합니다. Flyway는 모든 프로필에서 활성화되고 `baseline-on-migrate=false`, `clean-disabled=true`가 기본값이므로 migration 이력이 없는 non-empty schema를 정상 schema로 조용히 간주하지 않으며 migration 실패 시 애플리케이션 시작도 실패합니다.
+`src/main/resources/db/migration`의 Flyway migration이 schema 변경의 source of truth입니다. `V1__baseline_animalguard_schema.sql`은 도입 시점의 AnimalGuard JPA Entity 다섯 테이블을 만들고, `V2__prepare_device_command_mqtt_delivery.sql`은 DeviceCommand 전달 column과 `(device_id, created_at)` index를 추가합니다. Flyway는 모든 프로필에서 활성화되고 `baseline-on-migrate=false`, `clean-disabled=true`가 기본값이므로 migration 이력이 없는 non-empty schema를 정상 schema로 조용히 간주하지 않으며 migration 실패 시 애플리케이션 시작도 실패합니다.
+
+V2 이전의 command에는 MQTT payload field와 실제 publish 이력이 없습니다. V2는 이 row를 삭제하거나 publish 가능한 `CREATED`로 남기지 않고 `status=EXPIRED`, `reason=LEGACY_PRE_MQTT_COMMAND`, `issued_at=expires_at=expired_at=created_at`으로 backfill한 뒤 required column을 `NOT NULL`로 전환합니다.
 
 지원하는 기본 경로는 빈 AnimalGuard DB에서 V1부터 적용하는 방식입니다.
 
@@ -76,6 +79,18 @@ Found non-empty schema(s) "public" but no schema history table. Use baseline() o
 
 기본 프로필은 datasource 환경 변수 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`를 요구합니다. 기존 BirdGuard DB에 이 애플리케이션을 직접 기동하지 않습니다.
 
-`classification_confidence` nullable 변경 전에 생성한 `animalguard-postgres-data` volume은 Hibernate schema update가 기존 `NOT NULL` 제약을 제거하지 않으므로, 필요한 데이터를 백업한 뒤 volume을 재생성해야 합니다.
+`classification_confidence` nullable 변경 전에 생성한 `animalguard-postgres-data` volume은 V1과 schema가 일치하지 않아 자동 도입 대상이 아닙니다. 필요한 데이터를 백업한 뒤 volume을 재생성해야 합니다.
 
-이번 단계에서는 AI Server, 실제 모델, MQTT Publisher/Subscriber, ACK/status 전이, GPIO 실행 코드, 전체 추적 State Machine, ROI 계산을 구현하지 않습니다. DeviceCommand 상태는 `CREATED`만 사용합니다.
+## 다음 Backend MQTT PR handoff
+
+| 다음 작업 | 사용할 field/method |
+| --- | --- |
+| Publisher | `issuedAt`, `expiresAt`, `reason`, `markPublished` |
+| ACKNOWLEDGED | `markAcknowledged` |
+| EXECUTED | `markExecuted` |
+| FAILED | `markFailed` |
+| EXPIRED | `markExpired` |
+
+Publisher는 `CREATED` command를 조회해 MQTT publish가 성공한 뒤 주입된 Clock의 시각으로 `markPublished`를 호출합니다. ACK Subscriber는 ACK의 의미에 따라 나머지 transition method를 호출합니다. `CREATED → PUBLISHED → ACKNOWLEDGED → EXECUTED`, `PUBLISHED/ACKNOWLEDGED → FAILED`, `CREATED/PUBLISHED → EXPIRED`만 허용하며 같은 상태 중복 적용은 기존 timestamp를 보존하는 no-op입니다. 순서를 건너뛰거나 terminal 상태를 바꾸거나 이전 timestamp를 적용하면 Entity를 변경하기 전에 거절합니다.
+
+이번 단계에서는 실제 MQTT Publisher/Subscriber, publish 실패 retry, `PUBLISHED` 재시도 정책, 오래된 `ACKNOWLEDGED` reconciliation, outbox, broker 장애 복구, 다중 Backend 인스턴스 동시성, actuation readiness/preflight, GPIO 실행 코드, AI 모델과 위험 점수 정책을 구현하지 않습니다.
