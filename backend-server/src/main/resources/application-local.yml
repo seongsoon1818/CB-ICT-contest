@@ -9,3 +9,8 @@ spring:
   jpa:
     hibernate:
       ddl-auto: ${DDL_AUTO:update}
+
+animalguard:
+  device-control:
+    camera-device-mappings:
+      cam-001: pi-001

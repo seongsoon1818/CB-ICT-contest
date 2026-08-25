@@ -1,15 +1,12 @@
 package com.animalguard.service;
 
 import com.animalguard.domain.AnimalDetection;
-import com.animalguard.domain.DeviceCommand;
-import com.animalguard.domain.DeviceCommandStatus;
 import com.animalguard.domain.DetectionEvent;
 import com.animalguard.domain.RiskDecision;
 import com.animalguard.domain.RiskLevel;
 import com.animalguard.dto.DetectionEventRequest;
 import com.animalguard.dto.DetectionEventResponse;
 import com.animalguard.exception.DuplicateDetectionEventException;
-import com.animalguard.repository.DeviceCommandRepository;
 import com.animalguard.repository.DetectionEventRepository;
 import com.animalguard.repository.RiskDecisionRepository;
 import lombok.RequiredArgsConstructor;
@@ -19,20 +16,15 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.UUID;
-
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class DetectionEventService {
 
-    private static final String COMMAND_TYPE = "DETERRENT_LEVEL_2";
-    private static final int COMMAND_DURATION_MS = 5_000;
-
     private final DetectionEventRepository detectionEventRepository;
     private final RiskDecisionRepository riskDecisionRepository;
-    private final DeviceCommandRepository deviceCommandRepository;
     private final RiskDecisionEngine riskDecisionEngine;
+    private final DeviceCommandCreationService deviceCommandCreationService;
 
     @Transactional
     public DetectionEventResponse receive(DetectionEventRequest request) {
@@ -84,20 +76,9 @@ public class DetectionEventService {
         if (assessment.level() == RiskLevel.HIGH) {
             log.info("High risk detection event assessed: eventId={}, cameraId={}, riskScore={}",
                     request.eventId(), request.cameraId(), assessment.score());
-            // TODO:
-            // MVP에서는 cameraId를 deviceId로 임시 사용한다.
-            // Camera-Device Mapping 테이블 추가 후 제거 예정.
-            DeviceCommand command = deviceCommandRepository.save(new DeviceCommand(
-                    "command-" + UUID.randomUUID(),
-                    event,
-                    request.cameraId(),
-                    COMMAND_TYPE,
-                    COMMAND_DURATION_MS,
-                    DeviceCommandStatus.CREATED
-            ));
-            commandId = command.getCommandId();
-            log.info("Device command created: commandId={}, eventId={}, deviceId={}, commandType={}",
-                    commandId, request.eventId(), request.cameraId(), COMMAND_TYPE);
+            commandId = deviceCommandCreationService.createIfAllowed(event, request.cameraId())
+                    .map(command -> command.getCommandId())
+                    .orElse(null);
         }
 
         return new DetectionEventResponse(

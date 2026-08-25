@@ -10,11 +10,25 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Arrays;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,9 +42,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
+@Import(DetectionEventControllerIntegrationTest.TestClockConfiguration.class)
 class DetectionEventControllerIntegrationTest {
 
     private static final String EVENT_ID = "15356786-9588-4db4-a0fe-f8acd6300868";
+    private static final Instant TEST_NOW = Instant.parse("2026-08-25T03:00:00Z");
 
     @Autowired
     private MockMvc mockMvc;
@@ -47,8 +63,12 @@ class DetectionEventControllerIntegrationTest {
     @Autowired
     private DeviceCommandRepository deviceCommandRepository;
 
+    @Autowired
+    private MutableClock clock;
+
     @BeforeEach
     void cleanDatabase() {
+        clock.set(TEST_NOW);
         deviceCommandRepository.deleteAll();
         riskDecisionRepository.deleteAll();
         detectionEventRepository.deleteAll();
@@ -89,6 +109,83 @@ class DetectionEventControllerIntegrationTest {
         assertThat(deviceCommandRepository.count()).isEqualTo(1);
         assertThat(deviceCommandRepository.findAll().get(0).getStatus())
                 .isEqualTo(DeviceCommandStatus.CREATED);
+        assertThat(deviceCommandRepository.findAll().get(0).getDeviceId()).isEqualTo("pi-001");
+    }
+
+    @Test
+    void suppressesSecondHighRiskCommandDuringDeviceCooldown() throws Exception {
+        postHighRiskEvent("15356786-9588-4db4-a0fe-f8acd6300868", "cam-001")
+                .andExpect(jsonPath("$.commandId").isString());
+
+        postHighRiskEvent("25356786-9588-4db4-a0fe-f8acd6300868", "cam-001")
+                .andExpect(jsonPath("$.riskLevel", is("HIGH")))
+                .andExpect(jsonPath("$.commandId").doesNotExist());
+
+        assertThat(detectionEventRepository.count()).isEqualTo(2);
+        assertThat(riskDecisionRepository.count()).isEqualTo(2);
+        assertThat(deviceCommandRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void createsNewCommandWhenCooldownHasEnded() throws Exception {
+        postHighRiskEvent("15356786-9588-4db4-a0fe-f8acd6300868", "cam-001");
+        clock.advance(Duration.ofSeconds(20));
+
+        postHighRiskEvent("25356786-9588-4db4-a0fe-f8acd6300868", "cam-001")
+                .andExpect(jsonPath("$.commandId").isString());
+
+        assertThat(deviceCommandRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void calculatesCooldownIndependentlyForDifferentDevices() throws Exception {
+        postHighRiskEvent("15356786-9588-4db4-a0fe-f8acd6300868", "cam-001");
+
+        postHighRiskEvent("25356786-9588-4db4-a0fe-f8acd6300868", "cam-002")
+                .andExpect(jsonPath("$.commandId").isString());
+
+        assertThat(deviceCommandRepository.count()).isEqualTo(2);
+        assertThat(deviceCommandRepository.findAll())
+                .extracting(command -> command.getDeviceId())
+                .containsExactlyInAnyOrder("pi-001", "pi-002");
+    }
+
+    @Test
+    void storesHighRiskEventAndDecisionWithoutCommandForUnmappedCamera() throws Exception {
+        postHighRiskEvent(EVENT_ID, "cam-unknown")
+                .andExpect(jsonPath("$.riskLevel", is("HIGH")))
+                .andExpect(jsonPath("$.commandId").doesNotExist());
+
+        assertThat(detectionEventRepository.count()).isEqualTo(1);
+        assertThat(animalDetectionRepository.count()).isEqualTo(3);
+        assertThat(riskDecisionRepository.count()).isEqualTo(1);
+        assertThat(deviceCommandRepository.count()).isZero();
+    }
+
+    @Test
+    void serializesConcurrentCommandCreationForSameDevice() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try {
+            Future<Integer> first = executor.submit(() -> postConcurrentHighRiskEvent(
+                    "15356786-9588-4db4-a0fe-f8acd6300868", ready, start));
+            Future<Integer> second = executor.submit(() -> postConcurrentHighRiskEvent(
+                    "25356786-9588-4db4-a0fe-f8acd6300868", ready, start));
+
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            assertThat(first.get(10, TimeUnit.SECONDS)).isEqualTo(201);
+            assertThat(second.get(10, TimeUnit.SECONDS)).isEqualTo(201);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(detectionEventRepository.count()).isEqualTo(2);
+        assertThat(riskDecisionRepository.count()).isEqualTo(2);
+        assertThat(deviceCommandRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -297,6 +394,33 @@ class DetectionEventControllerIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
+    private org.springframework.test.web.servlet.ResultActions postHighRiskEvent(
+            String eventId,
+            String cameraId
+    ) throws Exception {
+        return mockMvc.perform(post("/api/v1/detection/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(highRiskPayload(eventId, cameraId)))
+                .andExpect(status().isCreated());
+    }
+
+    private int postConcurrentHighRiskEvent(
+            String eventId,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) throws Exception {
+        ready.countDown();
+        if (!start.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Concurrent request start timed out");
+        }
+        return mockMvc.perform(post("/api/v1/detection/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(highRiskPayload(eventId)))
+                .andReturn()
+                .getResponse()
+                .getStatus();
+    }
+
     private String oneDetectionPayload(String eventId) {
         return """
                 {
@@ -320,10 +444,14 @@ class DetectionEventControllerIntegrationTest {
     }
 
     private String highRiskPayload(String eventId) {
+        return highRiskPayload(eventId, "cam-001");
+    }
+
+    private String highRiskPayload(String eventId, String cameraId) {
         return """
                 {
                   "eventId": "%s",
-                  "cameraId": "cam-001",
+                  "cameraId": "%s",
                   "capturedAt": "2026-08-24T08:00:00Z",
                   "image": {"width": 1280, "height": 720},
                   "model": {"detectorVersion": "animal-detector-v1", "classifierVersion": "animal-classifier-v1"},
@@ -333,7 +461,7 @@ class DetectionEventControllerIntegrationTest {
                     {"detectionId": "det-003", "trackId": null, "classCode": "WILD_BOAR", "detectionConfidence": 0.70, "classificationConfidence": 0.70, "bbox": {"x": 300, "y": 400, "width": 50, "height": 60}}
                   ]
                 }
-                """.formatted(eventId);
+                """.formatted(eventId, cameraId);
     }
 
     private String emptyDetectionsPayload(String eventId) {
@@ -385,5 +513,47 @@ class DetectionEventControllerIntegrationTest {
                   "detections": [%s]
                 }
                 """.formatted(eventId, detections);
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class TestClockConfiguration {
+
+        @Bean
+        @Primary
+        MutableClock mutableClock() {
+            return new MutableClock(TEST_NOW);
+        }
+    }
+
+    static final class MutableClock extends Clock {
+
+        private final AtomicReference<Instant> current;
+
+        private MutableClock(Instant initial) {
+            this.current = new AtomicReference<>(initial);
+        }
+
+        void set(Instant instant) {
+            current.set(instant);
+        }
+
+        void advance(Duration duration) {
+            current.updateAndGet(instant -> instant.plus(duration));
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return Clock.fixed(current.get(), zone);
+        }
+
+        @Override
+        public Instant instant() {
+            return current.get();
+        }
     }
 }

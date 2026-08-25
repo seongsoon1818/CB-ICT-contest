@@ -10,6 +10,11 @@ spring:
     database-platform: org.hibernate.dialect.H2Dialect
 
 animalguard:
+  device-control:
+    cooldown: 20s
+    camera-device-mappings:
+      cam-001: pi-001
+      cam-002: pi-002
   risk:
     class-scores:
       MAGPIE: 25
