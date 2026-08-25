@@ -61,17 +61,6 @@ public class DeviceCommand {
             String deviceId,
             String commandType,
             int durationMs,
-            DeviceCommandStatus status
-    ) {
-        this(commandId, event, deviceId, commandType, durationMs, status, Instant.now());
-    }
-
-    public DeviceCommand(
-            String commandId,
-            DetectionEvent event,
-            String deviceId,
-            String commandType,
-            int durationMs,
             DeviceCommandStatus status,
             Instant createdAt
     ) {
