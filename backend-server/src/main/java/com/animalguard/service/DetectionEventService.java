@@ -3,7 +3,6 @@ package com.animalguard.service;
 import com.animalguard.domain.AnimalDetection;
 import com.animalguard.domain.DetectionEvent;
 import com.animalguard.domain.RiskDecision;
-import com.animalguard.domain.RiskLevel;
 import com.animalguard.dto.DetectionEventRequest;
 import com.animalguard.dto.DetectionEventResponse;
 import com.animalguard.exception.DuplicateDetectionEventException;
@@ -24,7 +23,6 @@ public class DetectionEventService {
     private final DetectionEventRepository detectionEventRepository;
     private final RiskDecisionRepository riskDecisionRepository;
     private final RiskDecisionEngine riskDecisionEngine;
-    private final DeviceCommandCreationService deviceCommandCreationService;
 
     @Transactional
     public DetectionEventResponse receive(DetectionEventRequest request) {
@@ -73,13 +71,6 @@ public class DetectionEventService {
         ));
 
         CommandDecision commandDecision = CommandDecision.notRequested();
-        if (assessment.level() == RiskLevel.HIGH) {
-            commandDecision = deviceCommandCreationService.createIfAllowed(
-                    event,
-                    request.cameraId(),
-                    assessment.reason()
-            );
-        }
 
         log.info(
                 "Command decision completed: eventId={}, cameraId={}, riskLevel={}, outcome={}, "

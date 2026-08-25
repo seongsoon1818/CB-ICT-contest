@@ -1,6 +1,5 @@
 package com.animalguard.controller;
 
-import com.animalguard.domain.DeviceCommandStatus;
 import com.animalguard.repository.AnimalDetectionRepository;
 import com.animalguard.repository.DeviceCommandRepository;
 import com.animalguard.repository.DetectionEventRepository;
@@ -20,15 +19,9 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Arrays;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
@@ -109,122 +102,21 @@ class DetectionEventControllerIntegrationTest {
     }
 
     @Test
-    void createsDeviceCommandWhenRiskIsHigh() throws Exception {
+    void doesNotSelectAutomaticCommandBeforeObservationPolicyExists() throws Exception {
         mockMvc.perform(post("/api/v1/detection/events")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(highRiskPayload(EVENT_ID)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.riskScore", is(70)))
                 .andExpect(jsonPath("$.riskLevel", is("HIGH")))
-                .andExpect(jsonPath("$.commandOutcome", is("CREATED")))
+                .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")))
                 .andExpect(jsonPath("$.commandBlockers").isEmpty())
-                .andExpect(jsonPath("$.commandId").isString());
-
-        assertThat(deviceCommandRepository.count()).isEqualTo(1);
-        assertThat(deviceCommandRepository.findAll().get(0).getStatus())
-                .isEqualTo(DeviceCommandStatus.CREATED);
-        assertThat(deviceCommandRepository.findAll().get(0).getDeviceId()).isEqualTo("pi-001");
-        assertThat(deviceCommandRepository.findAll().get(0).getReason())
-                .isEqualTo("CLASS_SCORE_MAGPIE +25, DETECTION_COUNT_GE_3 +25, CONFIDENCE_GE_0_9 +20, "
-                        + "INSIDE_FIELD_NOT_EVALUATED");
-        assertThat(deviceCommandRepository.findAll().get(0).getIssuedAt()).isEqualTo(TEST_NOW);
-        assertThat(deviceCommandRepository.findAll().get(0).getExpiresAt()).isEqualTo(TEST_NOW.plusSeconds(10));
-    }
-
-    @Test
-    void suppressesSecondHighRiskCommandDuringDeviceCooldown() throws Exception {
-        postHighRiskEvent("15356786-9588-4db4-a0fe-f8acd6300868", "cam-001")
-                .andExpect(jsonPath("$.commandId").isString());
-
-        postHighRiskEvent("25356786-9588-4db4-a0fe-f8acd6300868", "cam-001")
-                .andExpect(jsonPath("$.riskLevel", is("HIGH")))
-                .andExpect(jsonPath("$.commandOutcome", is("SUPPRESSED")))
-                .andExpect(jsonPath("$.commandBlockers[0]", is("COOLDOWN_ACTIVE")))
-                .andExpect(jsonPath("$.commandId").doesNotExist());
-
-        assertThat(detectionEventRepository.count()).isEqualTo(2);
-        assertThat(riskDecisionRepository.count()).isEqualTo(2);
-        assertThat(deviceCommandRepository.count()).isEqualTo(1);
-    }
-
-    @Test
-    void createsNewCommandWhenCooldownHasEnded() throws Exception {
-        postHighRiskEvent("15356786-9588-4db4-a0fe-f8acd6300868", "cam-001");
-        clock.advance(Duration.ofSeconds(20));
-
-        postHighRiskEvent("25356786-9588-4db4-a0fe-f8acd6300868", "cam-001")
-                .andExpect(jsonPath("$.commandId").isString());
-
-        assertThat(deviceCommandRepository.count()).isEqualTo(2);
-    }
-
-    @Test
-    void calculatesCooldownIndependentlyForDifferentDevices() throws Exception {
-        postHighRiskEvent("15356786-9588-4db4-a0fe-f8acd6300868", "cam-001");
-
-        postHighRiskEvent("25356786-9588-4db4-a0fe-f8acd6300868", "cam-002")
-                .andExpect(jsonPath("$.commandId").isString());
-
-        assertThat(deviceCommandRepository.count()).isEqualTo(2);
-        assertThat(deviceCommandRepository.findAll())
-                .extracting(command -> command.getDeviceId())
-                .containsExactlyInAnyOrder("pi-001", "pi-002");
-    }
-
-    @Test
-    void storesHighRiskEventAndDecisionWithoutCommandForUnmappedCamera() throws Exception {
-        postHighRiskEvent(EVENT_ID, "cam-unknown")
-                .andExpect(jsonPath("$.riskLevel", is("HIGH")))
-                .andExpect(jsonPath("$.commandOutcome", is("SUPPRESSED")))
-                .andExpect(jsonPath("$.commandBlockers[0]", is("CAMERA_UNMAPPED")))
                 .andExpect(jsonPath("$.commandId").doesNotExist());
 
         assertThat(detectionEventRepository.count()).isEqualTo(1);
         assertThat(animalDetectionRepository.count()).isEqualTo(3);
         assertThat(riskDecisionRepository.count()).isEqualTo(1);
         assertThat(deviceCommandRepository.count()).isZero();
-    }
-
-    @Test
-    void storesHighRiskEventAndDecisionWhenGlobalPreflightSuppressesCommand() throws Exception {
-        transportReadiness.setReady(false);
-
-        postHighRiskEvent(EVENT_ID, "cam-001")
-                .andExpect(jsonPath("$.riskLevel", is("HIGH")))
-                .andExpect(jsonPath("$.commandOutcome", is("SUPPRESSED")))
-                .andExpect(jsonPath("$.commandBlockers[0]", is("MQTT_PUBLISHER_NOT_READY")))
-                .andExpect(jsonPath("$.commandId").doesNotExist());
-
-        assertThat(detectionEventRepository.count()).isEqualTo(1);
-        assertThat(animalDetectionRepository.count()).isEqualTo(3);
-        assertThat(riskDecisionRepository.count()).isEqualTo(1);
-        assertThat(deviceCommandRepository.count()).isZero();
-    }
-
-    @Test
-    void serializesConcurrentCommandCreationForSameDevice() throws Exception {
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch ready = new CountDownLatch(2);
-        CountDownLatch start = new CountDownLatch(1);
-
-        try {
-            Future<Integer> first = executor.submit(() -> postConcurrentHighRiskEvent(
-                    "15356786-9588-4db4-a0fe-f8acd6300868", ready, start));
-            Future<Integer> second = executor.submit(() -> postConcurrentHighRiskEvent(
-                    "25356786-9588-4db4-a0fe-f8acd6300868", ready, start));
-
-            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
-            start.countDown();
-
-            assertThat(first.get(10, TimeUnit.SECONDS)).isEqualTo(201);
-            assertThat(second.get(10, TimeUnit.SECONDS)).isEqualTo(201);
-        } finally {
-            executor.shutdownNow();
-        }
-
-        assertThat(detectionEventRepository.count()).isEqualTo(2);
-        assertThat(riskDecisionRepository.count()).isEqualTo(2);
-        assertThat(deviceCommandRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -437,33 +329,6 @@ class DetectionEventControllerIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
-    private org.springframework.test.web.servlet.ResultActions postHighRiskEvent(
-            String eventId,
-            String cameraId
-    ) throws Exception {
-        return mockMvc.perform(post("/api/v1/detection/events")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(highRiskPayload(eventId, cameraId)))
-                .andExpect(status().isCreated());
-    }
-
-    private int postConcurrentHighRiskEvent(
-            String eventId,
-            CountDownLatch ready,
-            CountDownLatch start
-    ) throws Exception {
-        ready.countDown();
-        if (!start.await(5, TimeUnit.SECONDS)) {
-            throw new IllegalStateException("Concurrent request start timed out");
-        }
-        return mockMvc.perform(post("/api/v1/detection/events")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(highRiskPayload(eventId)))
-                .andReturn()
-                .getResponse()
-                .getStatus();
-    }
-
     private String oneDetectionPayload(String eventId) {
         return """
                 {
@@ -597,10 +462,6 @@ class DetectionEventControllerIntegrationTest {
 
         void set(Instant instant) {
             current.set(instant);
-        }
-
-        void advance(Duration duration) {
-            current.updateAndGet(instant -> instant.plus(duration));
         }
 
         @Override

@@ -1,10 +1,15 @@
 package com.animalguard.domain;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.time.Instant;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DeviceCommandTest {
@@ -13,11 +18,115 @@ class DeviceCommandTest {
     private static final String REASON = "CLASS_SCORE_MAGPIE +30, DETECTION_COUNT_GE_3 +20";
 
     @Test
+    void definesOnlyFinalDeviceCommandTypesAndSources() {
+        assertThat(DeviceCommandType.values()).containsExactly(
+                DeviceCommandType.ROTATE_CAMERA_LEFT,
+                DeviceCommandType.ROTATE_CAMERA_RIGHT,
+                DeviceCommandType.SOUND_ALERT,
+                DeviceCommandType.DETERRENT_FULL,
+                DeviceCommandType.STOP_DETERRENT
+        );
+        assertThat(DeviceCommandSource.values()).containsExactly(
+                DeviceCommandSource.AUTOMATIC,
+                DeviceCommandSource.MANUAL
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("allowedSourceTypeAndDurationCombinations")
+    void allowsValidSourceTypeEventAndDurationCombinations(
+            DeviceCommandSource source,
+            DeviceCommandType commandType,
+            Integer durationMs
+    ) {
+        DetectionEvent event = source == DeviceCommandSource.AUTOMATIC ? event() : null;
+
+        assertThatCode(() -> command(event, source, commandType, durationMs))
+                .doesNotThrowAnyException();
+    }
+
+    @ParameterizedTest
+    @MethodSource("rejectedSourceTypeCombinations")
+    void rejectsInvalidSourceAndTypeCombinations(
+            DeviceCommandSource source,
+            DeviceCommandType commandType
+    ) {
+        DetectionEvent event = source == DeviceCommandSource.AUTOMATIC ? event() : null;
+        Integer durationMs = switch (commandType) {
+            case SOUND_ALERT, DETERRENT_FULL -> 5_000;
+            case ROTATE_CAMERA_LEFT, ROTATE_CAMERA_RIGHT, STOP_DETERRENT -> null;
+        };
+
+        assertThatThrownBy(() -> command(event, source, commandType, durationMs))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("source");
+    }
+
+    @Test
+    void requiresEventOnlyForAutomaticCommands() {
+        assertThatThrownBy(() -> command(
+                null,
+                DeviceCommandSource.AUTOMATIC,
+                DeviceCommandType.SOUND_ALERT,
+                2_000
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("event");
+
+        assertThatThrownBy(() -> command(
+                event(),
+                DeviceCommandSource.MANUAL,
+                DeviceCommandType.ROTATE_CAMERA_LEFT,
+                null
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("event");
+    }
+
+    @Test
+    void validatesDurationByCommandType() {
+        assertThatThrownBy(() -> command(
+                event(),
+                DeviceCommandSource.AUTOMATIC,
+                DeviceCommandType.SOUND_ALERT,
+                null
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("durationMs");
+        assertThatThrownBy(() -> command(
+                event(),
+                DeviceCommandSource.AUTOMATIC,
+                DeviceCommandType.DETERRENT_FULL,
+                0
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("durationMs");
+        assertThatThrownBy(() -> command(
+                null,
+                DeviceCommandSource.MANUAL,
+                DeviceCommandType.STOP_DETERRENT,
+                1_000
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("durationMs");
+        assertThatThrownBy(() -> command(
+                event(),
+                DeviceCommandSource.AUTOMATIC,
+                DeviceCommandType.STOP_DETERRENT,
+                1_000
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("durationMs");
+        assertThatThrownBy(() -> command(
+                null,
+                DeviceCommandSource.MANUAL,
+                DeviceCommandType.ROTATE_CAMERA_RIGHT,
+                -1
+        )).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("durationMs");
+    }
+
+    @Test
     void createsCommandWithRequiredDeliveryFieldsAndCreatedStatus() {
         DeviceCommand command = command();
 
         assertThat(command.getStatus()).isEqualTo(DeviceCommandStatus.CREATED);
         assertThat(command.getVersion()).isZero();
+        assertThat(command.getSource()).isEqualTo(DeviceCommandSource.AUTOMATIC);
+        assertThat(command.getCommandType()).isEqualTo(DeviceCommandType.SOUND_ALERT);
+        assertThat(command.getEvent()).isNotNull();
+        assertThat(command.getDurationMs()).isEqualTo(5_000);
         assertThat(command.getReason()).isEqualTo(REASON);
         assertThat(command.getIssuedAt()).isEqualTo(ISSUED_AT);
         assertThat(command.getExpiresAt()).isEqualTo(ISSUED_AT.plusSeconds(10));
@@ -247,16 +356,56 @@ class DeviceCommandTest {
         return command(5_000, REASON, ISSUED_AT, ISSUED_AT.plusSeconds(10));
     }
 
-    private DeviceCommand command(int durationMs, String reason, Instant issuedAt, Instant expiresAt) {
+    private DeviceCommand command(Integer durationMs, String reason, Instant issuedAt, Instant expiresAt) {
         return new DeviceCommand(
                 "command-001",
                 event(),
                 "pi-001",
-                "DETERRENT_LEVEL_2",
+                DeviceCommandSource.AUTOMATIC,
+                DeviceCommandType.SOUND_ALERT,
                 durationMs,
                 reason,
                 issuedAt,
                 expiresAt
+        );
+    }
+
+    private DeviceCommand command(
+            DetectionEvent event,
+            DeviceCommandSource source,
+            DeviceCommandType commandType,
+            Integer durationMs
+    ) {
+        return new DeviceCommand(
+                "command-001",
+                event,
+                "pi-001",
+                source,
+                commandType,
+                durationMs,
+                REASON,
+                ISSUED_AT,
+                ISSUED_AT.plusSeconds(10)
+        );
+    }
+
+    private static Stream<Arguments> allowedSourceTypeAndDurationCombinations() {
+        return Stream.of(
+                Arguments.of(DeviceCommandSource.AUTOMATIC, DeviceCommandType.SOUND_ALERT, 2_000),
+                Arguments.of(DeviceCommandSource.AUTOMATIC, DeviceCommandType.DETERRENT_FULL, 5_000),
+                Arguments.of(DeviceCommandSource.AUTOMATIC, DeviceCommandType.STOP_DETERRENT, null),
+                Arguments.of(DeviceCommandSource.MANUAL, DeviceCommandType.ROTATE_CAMERA_LEFT, null),
+                Arguments.of(DeviceCommandSource.MANUAL, DeviceCommandType.ROTATE_CAMERA_RIGHT, null),
+                Arguments.of(DeviceCommandSource.MANUAL, DeviceCommandType.STOP_DETERRENT, null)
+        );
+    }
+
+    private static Stream<Arguments> rejectedSourceTypeCombinations() {
+        return Stream.of(
+                Arguments.of(DeviceCommandSource.MANUAL, DeviceCommandType.SOUND_ALERT),
+                Arguments.of(DeviceCommandSource.MANUAL, DeviceCommandType.DETERRENT_FULL),
+                Arguments.of(DeviceCommandSource.AUTOMATIC, DeviceCommandType.ROTATE_CAMERA_LEFT),
+                Arguments.of(DeviceCommandSource.AUTOMATIC, DeviceCommandType.ROTATE_CAMERA_RIGHT)
         );
     }
 

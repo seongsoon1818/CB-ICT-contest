@@ -2,6 +2,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
+
 from animalguard_mqtt.command_handler import CommandHandler
 from animalguard_mqtt.dedup_store import DedupStore
 from animalguard_mqtt.mock_gpio import MockGPIO
@@ -15,11 +17,12 @@ def command_payload(**overrides):
         "commandId": "cmd-001",
         "eventId": str(uuid4()),
         "deviceId": "pi-001",
-        "command": "DETERRENT_LEVEL_1",
-        "durationMs": 5000,
+        "source": "AUTOMATIC",
+        "command": "SOUND_ALERT",
+        "durationMs": 2000,
         "issuedAt": (NOW - timedelta(seconds=1)).isoformat(),
         "expiresAt": (NOW + timedelta(seconds=10)).isoformat(),
-        "reason": "HIGH_RISK_MAGPIE",
+        "reason": "FIRST_ANIMAL_DETECTION",
     }
     payload.update(overrides)
     return json.dumps(payload)
@@ -39,6 +42,37 @@ def test_valid_command_publishes_acknowledged_then_executed(tmp_path):
     assert [ack["status"] for ack in published] == ["ACKNOWLEDGED", "EXECUTED"]
     assert handler.gpio.execution_count == 1
     assert store.get("cmd-001").status == "EXECUTED"
+    store.close()
+
+
+@pytest.mark.parametrize(
+    ("source", "command", "duration_ms", "action"),
+    [
+        ("MANUAL", "ROTATE_CAMERA_LEFT", None, "카메라 서보 왼쪽 회전 mock"),
+        ("MANUAL", "ROTATE_CAMERA_RIGHT", None, "카메라 서보 오른쪽 회전 mock"),
+        ("AUTOMATIC", "SOUND_ALERT", 2000, "스피커 경고 mock"),
+        ("AUTOMATIC", "DETERRENT_FULL", 5000, "억제 모터 + 스피커 ON mock"),
+        ("MANUAL", "STOP_DETERRENT", None, "억제 모터 + 스피커 OFF mock"),
+    ],
+)
+def test_executes_each_semantic_mock_gpio_action(
+    tmp_path, source, command, duration_ms, action
+):
+    handler, store = make_handler(tmp_path / f"{command}.db")
+    event_id = str(uuid4()) if source == "AUTOMATIC" else None
+
+    handler.handle(
+        command_payload(
+            source=source,
+            command=command,
+            eventId=event_id,
+            durationMs=duration_ms,
+        ),
+        lambda ack: None,
+    )
+
+    assert handler.gpio.executions[0].action == action
+    assert handler.gpio.executions[0].duration_ms == duration_ms
     store.close()
 
 

@@ -39,7 +39,7 @@ command와 ACK는 QoS 1이며 retain하지 않습니다. QoS 0이거나 retained
 
 ## Command 검증과 중복 방지
 
-계약에 정의된 8개 필드를 모두 요구하고 알 수 없는 추가 필드는 거절합니다. 따라서 GPIO 번호, raw PWM과 그 밖의 계약 외 필드도 거절됩니다. UUID, deviceId, 양수 duration, timezone 포함 시각, 발행·만료 순서와 semantic command allowlist를 검증합니다.
+계약에 정의된 9개 필드를 모두 요구하고 알 수 없는 추가 필드는 거절합니다. 따라서 GPIO 번호, raw PWM과 그 밖의 계약 외 필드도 거절됩니다. `source`, source별 `eventId`, command/source 조합, command별 nullable/양수 `durationMs`, deviceId, timezone 포함 시각, 발행·만료 순서와 semantic command allowlist를 검증합니다.
 
 정상 command는 ACKNOWLEDGED 발행 후 Mock GPIO를 즉시 기록하고 EXECUTED를 발행합니다. 실제 `durationMs`만큼 sleep하지 않습니다. 만료 command는 EXPIRED, 지원하지 않거나 검증·실행에 실패한 command는 가능한 식별자가 있을 때 FAILED로 저장·발행합니다. 식별자를 파싱할 수 없는 JSON에는 ACK를 발행하지 않습니다.
 
@@ -47,12 +47,13 @@ SQLite의 `processed_commands` 테이블에 commandId와 마지막 ACK를 저장
 
 ## Mock GPIO 매핑
 
-- `DETERRENT_LEVEL_1`: LED mock log
-- `DETERRENT_LEVEL_2`: MOTOR/SPEAKER/LED mock log
-- `DETERRENT_LEVEL_3`: 강화 동작 mock log
-- `STOP_DETERRENT`: 모든 장치 OFF mock log
+- `ROTATE_CAMERA_LEFT`: 카메라 서보 왼쪽 회전 mock log
+- `ROTATE_CAMERA_RIGHT`: 카메라 서보 오른쪽 회전 mock log
+- `SOUND_ALERT`: 스피커 경고 mock log
+- `DETERRENT_FULL`: 억제 모터 + 스피커 ON mock log
+- `STOP_DETERRENT`: 억제 모터 + 스피커 OFF mock log
 
-실제 pin 번호나 GPIO 라이브러리는 사용하지 않습니다.
+실제 pin 번호, 실제 5도 서보 제어, GPIO 라이브러리는 사용하지 않습니다. 동물별 command도 해석하지 않으며 Backend가 선택한 semantic action만 소비합니다.
 
 ## 테스트
 
