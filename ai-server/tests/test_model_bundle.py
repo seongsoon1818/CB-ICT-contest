@@ -127,6 +127,9 @@ def test_loads_valid_bundle_with_non_contiguous_class_ids(tmp_path: Path) -> Non
         valid_manifest(
             detector={**valid_manifest()["detector"], "resizeMode": "crop"}
         ),
+        valid_manifest(
+            detector={**valid_manifest()["detector"], "inputWidth": "640"}
+        ),
     ],
 )
 def test_rejects_invalid_manifest(
@@ -156,6 +159,7 @@ def test_rejects_invalid_manifest(
             ]
         ),
         valid_class_map(classes=[{"id": 0, "classCode": "wild-boar"}]),
+        valid_class_map(classes=[{"id": "0", "classCode": "MAGPIE"}]),
     ],
 )
 def test_rejects_invalid_class_map(
@@ -181,7 +185,10 @@ def test_loads_optional_classifier(tmp_path: Path) -> None:
     assert bundle.manifest.classifier.version == "classifier-v1"
 
 
-@pytest.mark.parametrize("field", ["classMapFile", "detector.file"])
+@pytest.mark.parametrize(
+    "field",
+    ["classMapFile", "detector.file", "classifier.file"],
+)
 @pytest.mark.parametrize("unsafe_name", ["../outside.bin", "/tmp/outside.bin"])
 def test_rejects_traversal_and_absolute_paths(
     tmp_path: Path,
@@ -191,10 +198,15 @@ def test_rejects_traversal_and_absolute_paths(
     manifest = valid_manifest()
     if field == "classMapFile":
         manifest["classMapFile"] = unsafe_name
-    else:
+    elif field == "detector.file":
         manifest["detector"] = {
             **manifest["detector"],
             "file": unsafe_name,
+        }
+    else:
+        manifest["classifier"] = {
+            "file": unsafe_name,
+            "version": "classifier-v1",
         }
     bundle_dir = write_bundle(tmp_path / "bundle", manifest=manifest)
 
@@ -202,29 +214,67 @@ def test_rejects_traversal_and_absolute_paths(
         ModelBundleLoader().load(bundle_dir)
 
 
-def test_rejects_symlink_resolving_outside_bundle(tmp_path: Path) -> None:
+def manifest_for_file_target(target: str) -> dict[str, Any]:
+    manifest = valid_manifest()
+    if target == "classifier":
+        manifest["classifier"] = {
+            "file": "classifier.bin",
+            "version": "classifier-v1",
+        }
+    return manifest
+
+
+def bundle_file_path(bundle_dir: Path, target: str) -> Path:
+    return bundle_dir / {
+        "detector": "detector.bin",
+        "classifier": "classifier.bin",
+        "class_map": "classes.json",
+    }[target]
+
+
+@pytest.mark.parametrize("target", ["detector", "classifier", "class_map"])
+def test_rejects_symlink_resolving_outside_bundle(
+    tmp_path: Path,
+    target: str,
+) -> None:
     outside = tmp_path / "outside.bin"
     outside.write_text("outside", encoding="utf-8")
-    bundle_dir = write_bundle(tmp_path / "bundle")
-    (bundle_dir / "detector.bin").unlink()
-    (bundle_dir / "detector.bin").symlink_to(outside)
+    bundle_dir = write_bundle(
+        tmp_path / "bundle",
+        manifest=manifest_for_file_target(target),
+    )
+    target_path = bundle_file_path(bundle_dir, target)
+    target_path.unlink()
+    target_path.symlink_to(outside)
 
     with pytest.raises(ModelBundleError, match="path"):
         ModelBundleLoader().load(bundle_dir)
 
 
-def test_rejects_missing_model_file(tmp_path: Path) -> None:
-    bundle_dir = write_bundle(tmp_path / "bundle")
-    (bundle_dir / "detector.bin").unlink()
+@pytest.mark.parametrize("target", ["detector", "classifier", "class_map"])
+def test_rejects_missing_bundle_file(tmp_path: Path, target: str) -> None:
+    bundle_dir = write_bundle(
+        tmp_path / "bundle",
+        manifest=manifest_for_file_target(target),
+    )
+    bundle_file_path(bundle_dir, target).unlink()
 
     with pytest.raises(ModelBundleError, match="file"):
         ModelBundleLoader().load(bundle_dir)
 
 
-def test_rejects_directory_instead_of_model_file(tmp_path: Path) -> None:
-    bundle_dir = write_bundle(tmp_path / "bundle")
-    (bundle_dir / "detector.bin").unlink()
-    (bundle_dir / "detector.bin").mkdir()
+@pytest.mark.parametrize("target", ["detector", "classifier", "class_map"])
+def test_rejects_directory_instead_of_bundle_file(
+    tmp_path: Path,
+    target: str,
+) -> None:
+    bundle_dir = write_bundle(
+        tmp_path / "bundle",
+        manifest=manifest_for_file_target(target),
+    )
+    target_path = bundle_file_path(bundle_dir, target)
+    target_path.unlink()
+    target_path.mkdir()
 
     with pytest.raises(ModelBundleError, match="file"):
         ModelBundleLoader().load(bundle_dir)
