@@ -5,6 +5,7 @@ spring:
     password:
     driver-class-name: org.h2.Driver
   jpa:
+    # Flyway alone creates the test schema; Hibernate only validates the migrated result.
     hibernate:
       ddl-auto: validate
     database-platform: org.hibernate.dialect.H2Dialect

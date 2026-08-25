@@ -12,6 +12,8 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: false
+    placeholder-replacement: false
+    # Flyway 9+ default; keep explicit so destructive clean remains disabled by policy.
     clean-disabled: true
   jpa:
     open-in-view: false

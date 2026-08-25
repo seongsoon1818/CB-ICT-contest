@@ -6,6 +6,7 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/animalguard}
     username: ${DB_USERNAME:animalguard}
     password: ${DB_PASSWORD:animalguard}
+
 animalguard:
   device-control:
     camera-device-mappings:

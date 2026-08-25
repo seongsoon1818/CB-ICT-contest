@@ -62,6 +62,14 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 
 지원하는 기본 경로는 빈 AnimalGuard DB에서 V1부터 적용하는 방식입니다.
 
+기존 Hibernate `ddl-auto=update` 경로로 만든 local DB처럼 table은 있지만 `flyway_schema_history`가 없는 schema에서는 다음 오류로 시작을 중단합니다.
+
+```text
+Found non-empty schema(s) "public" but no schema history table. Use baseline() or set baselineOnMigrate to true to initialize the schema history table.
+```
+
+이 메시지의 제안과 달리 `baseline-on-migrate=true`를 켜서 우회하지 않습니다. Flyway가 기존 schema를 V1과 같다고 검증하지 않은 채 migration 이력만 만들 수 있기 때문입니다.
+
 - 중요한 데이터가 없는 기존 local volume은 먼저 필요한 내용을 백업한 뒤 `animalguard-postgres-data` volume을 삭제하고 fresh DB로 재생성합니다.
 - 기존 데이터를 반드시 보존해야 하면 먼저 백업하고 현재 schema가 V1과 정확히 같은지 수동으로 확인한 뒤, 별도로 승인된 일회성 baseline 절차를 사용합니다. `baseline-on-migrate=true`는 local 기본값이 아니며 자동 도입이나 안전한 이전을 보장하지 않습니다.
 - BirdGuard 이름이 남은 schema, `bird_detections`가 있는 schema, `classification_confidence`가 `NOT NULL`인 오래된 schema, 알 수 없는 수동 변경이 있는 schema는 자동 도입 대상이 아닙니다. 실제 이전 요구가 확인되면 별도 migration 작업으로 다룹니다.
