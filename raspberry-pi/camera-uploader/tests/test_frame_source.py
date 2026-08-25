@@ -1,5 +1,7 @@
 import builtins
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -31,3 +33,81 @@ def test_picamera2_missing_dependency_has_clear_startup_error(
 
     with pytest.raises(RuntimeError, match="Picamera2 is not installed"):
         Picamera2FrameSource()
+
+
+def test_picamera2_is_initialized_once_captures_jpeg_and_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instances: list[FakePicamera2] = []
+
+    class FakePicamera2:
+        def __init__(self) -> None:
+            self.started = False
+            self.stopped = False
+            self.closed = False
+            instances.append(self)
+
+        def create_still_configuration(self, **configuration: object) -> object:
+            assert configuration == {"main": {"size": (640, 480)}}
+            return configuration
+
+        def configure(self, configuration: object) -> None:
+            assert configuration == {"main": {"size": (640, 480)}}
+
+        def start(self) -> None:
+            self.started = True
+
+        def capture_file(self, output: object, *, format: str) -> None:
+            assert format == "jpeg"
+            output.write(b"jpeg-frame")  # type: ignore[attr-defined]
+
+        def stop(self) -> None:
+            self.stopped = True
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setitem(
+        sys.modules,
+        "picamera2",
+        SimpleNamespace(Picamera2=FakePicamera2),
+    )
+
+    source = Picamera2FrameSource(width=640, height=480)
+
+    assert source.capture_jpeg() == b"jpeg-frame"
+    assert len(instances) == 1
+    source.close()
+    source.close()
+    assert instances[0].started
+    assert instances[0].stopped
+    assert instances[0].closed
+
+
+def test_picamera2_initialization_failure_closes_camera(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    camera = SimpleNamespace(closed=False)
+
+    def create_still_configuration(**configuration: object) -> object:
+        return configuration
+
+    def configure(configuration: object) -> None:
+        raise OSError("configuration failed")
+
+    def close() -> None:
+        camera.closed = True
+
+    camera.create_still_configuration = create_still_configuration
+    camera.configure = configure
+    camera.close = close
+    monkeypatch.setitem(
+        sys.modules,
+        "picamera2",
+        SimpleNamespace(Picamera2=lambda: camera),
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to initialize Picamera2"):
+        Picamera2FrameSource()
+
+    assert camera.closed

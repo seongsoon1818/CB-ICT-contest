@@ -1,3 +1,4 @@
+from contextlib import suppress
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Protocol
@@ -30,6 +31,7 @@ class Picamera2FrameSource:
                 "python3-picamera2 package before using CAMERA_SOURCE=picamera2."
             ) from error
 
+        camera: Any | None = None
         try:
             camera = Picamera2()
             camera.configure(
@@ -37,6 +39,9 @@ class Picamera2FrameSource:
             )
             camera.start()
         except Exception as error:
+            if camera is not None:
+                with suppress(Exception):
+                    camera.close()
             raise RuntimeError(f"Failed to initialize Picamera2: {error}") from error
         self._camera: Any | None = camera
 
