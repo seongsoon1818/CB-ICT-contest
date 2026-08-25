@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -56,9 +58,10 @@ def make_jpeg_header_with_dimensions(width: int, height: int) -> bytes:
     return bytes(data)
 
 
+@contextmanager
 def make_client(
     mock_result: str = "detected",
-) -> tuple[TestClient, RecordingBackendClient]:
+) -> Iterator[tuple[TestClient, RecordingBackendClient]]:
     backend_client = RecordingBackendClient()
     app = create_app(
         Settings(
@@ -67,7 +70,8 @@ def make_client(
         ),
         backend_client=backend_client,
     )
-    return TestClient(app), backend_client
+    with TestClient(app) as client:
+        yield client, backend_client
 
 
 def analyze(
@@ -86,9 +90,8 @@ def analyze(
 
 
 def test_valid_jpeg_builds_detector_only_event_and_returns_backend_body() -> None:
-    client, backend_client = make_client()
-
-    response = analyze(client, make_jpeg())
+    with make_client() as (client, backend_client):
+        response = analyze(client, make_jpeg())
 
     assert response.status_code == 200
     assert response.json()["riskLevel"] == "MEDIUM"
@@ -121,9 +124,8 @@ def test_valid_jpeg_builds_detector_only_event_and_returns_backend_body() -> Non
 
 
 def test_detected_mode_builds_valid_bbox_for_one_pixel_image() -> None:
-    client, backend_client = make_client()
-
-    response = analyze(client, make_jpeg(1, 1))
+    with make_client() as (client, backend_client):
+        response = analyze(client, make_jpeg(1, 1))
 
     assert response.status_code == 200
     assert backend_client.event is not None
@@ -136,9 +138,8 @@ def test_detected_mode_builds_valid_bbox_for_one_pixel_image() -> None:
 
 
 def test_empty_mode_keeps_empty_detections_array() -> None:
-    client, backend_client = make_client("empty")
-
-    response = analyze(client, make_jpeg(20, 10))
+    with make_client("empty") as (client, backend_client):
+        response = analyze(client, make_jpeg(20, 10))
 
     assert response.status_code == 200
     assert backend_client.event is not None
@@ -150,14 +151,17 @@ def test_empty_mode_keeps_empty_detections_array() -> None:
     ["2026-08-25T02:00:00+09:00", "2026-08-24T17:00:00Z"],
 )
 def test_generated_event_matches_repository_json_schema(captured_at: str) -> None:
-    client, backend_client = make_client()
+    with make_client() as (client, backend_client):
+        response = analyze(
+            client,
+            make_jpeg(640, 480),
+            captured_at=captured_at,
+        )
     schema_path = (
         Path(__file__).resolve().parents[2]
         / "docs/contracts/detection-event-v1.schema.json"
     )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
-
-    response = analyze(client, make_jpeg(640, 480), captured_at=captured_at)
 
     assert response.status_code == 200
     assert backend_client.event is not None
@@ -169,65 +173,59 @@ def test_generated_event_matches_repository_json_schema(captured_at: str) -> Non
 
 
 def test_empty_file_returns_400() -> None:
-    client, _ = make_client()
-
-    response = analyze(client, b"")
+    with make_client() as (client, _):
+        response = analyze(client, b"")
 
     assert response.status_code == 400
 
 
 def test_non_jpeg_bytes_return_400() -> None:
-    client, _ = make_client()
-
-    response = analyze(client, b"not-a-jpeg")
+    with make_client() as (client, _):
+        response = analyze(client, b"not-a-jpeg")
 
     assert response.status_code == 400
 
 
 def test_truncated_jpeg_returns_400() -> None:
-    client, _ = make_client()
-
-    response = analyze(client, make_jpeg()[:-100])
+    with make_client() as (client, _):
+        response = analyze(client, make_jpeg()[:-100])
 
     assert response.status_code == 400
 
 
 def test_non_jpeg_content_type_returns_400() -> None:
-    client, _ = make_client()
-
-    response = analyze(client, make_jpeg(), content_type="image/png")
+    with make_client() as (client, _):
+        response = analyze(client, make_jpeg(), content_type="image/png")
 
     assert response.status_code == 400
 
 
 def test_jpeg_content_type_with_parameter_is_accepted() -> None:
-    client, _ = make_client()
-
-    response = analyze(
-        client,
-        make_jpeg(),
-        content_type="Image/JPEG; charset=utf-8",
-    )
+    with make_client() as (client, _):
+        response = analyze(
+            client,
+            make_jpeg(),
+            content_type="Image/JPEG; charset=utf-8",
+        )
 
     assert response.status_code == 200
 
 
 def test_oversized_frame_returns_413() -> None:
-    client, _ = make_client()
-
-    response = analyze(client, b"x" * (MAX_JPEG_BYTES + 1))
+    with make_client() as (client, _):
+        response = analyze(client, b"x" * (MAX_JPEG_BYTES + 1))
 
     assert response.status_code == 413
 
 
 def test_image_over_pixel_budget_returns_413_before_full_decode() -> None:
-    client, backend_client = make_client()
     compact_jpeg_with_large_dimensions = make_jpeg_header_with_dimensions(
         width=8_000,
         height=5_001,
     )
 
-    response = analyze(client, compact_jpeg_with_large_dimensions)
+    with make_client() as (client, backend_client):
+        response = analyze(client, compact_jpeg_with_large_dimensions)
 
     assert len(compact_jpeg_with_large_dimensions) < 5 * 1024 * 1024
     assert response.status_code == 413
@@ -235,21 +233,19 @@ def test_image_over_pixel_budget_returns_413_before_full_decode() -> None:
 
 
 def test_invalid_camera_id_returns_422() -> None:
-    client, _ = make_client()
-
-    response = analyze(client, make_jpeg(), camera_id="-invalid")
+    with make_client() as (client, _):
+        response = analyze(client, make_jpeg(), camera_id="-invalid")
 
     assert response.status_code == 422
 
 
 def test_timezone_naive_captured_at_returns_422() -> None:
-    client, _ = make_client()
-
-    response = analyze(
-        client,
-        make_jpeg(),
-        captured_at="2026-08-25T02:00:00",
-    )
+    with make_client() as (client, _):
+        response = analyze(
+            client,
+            make_jpeg(),
+            captured_at="2026-08-25T02:00:00",
+        )
 
     assert response.status_code == 422
 
@@ -259,9 +255,8 @@ def test_backend_failure_returns_502_without_internal_details() -> None:
         Settings(backend_base_url="http://backend.internal"),
         backend_client=FailingBackendClient(BackendUnavailable()),
     )
-    client = TestClient(app)
-
-    response = analyze(client, make_jpeg())
+    with TestClient(app) as client:
+        response = analyze(client, make_jpeg())
 
     assert response.status_code == 502
     assert "backend.internal" not in response.text
@@ -272,9 +267,8 @@ def test_backend_conflict_returns_409() -> None:
         Settings(backend_base_url="http://backend.example"),
         backend_client=FailingBackendClient(BackendConflict()),
     )
-    client = TestClient(app)
-
-    response = analyze(client, make_jpeg())
+    with TestClient(app) as client:
+        response = analyze(client, make_jpeg())
 
     assert response.status_code == 409
 
@@ -285,9 +279,8 @@ def test_analyze_closes_decoded_image(
     image = Image.new("RGB", (20, 10), "white")
     decoded_frame = DecodedFrame(image=image, width=20, height=10)
     monkeypatch.setattr("app.main.decode_jpeg", lambda data: decoded_frame)
-    client, _ = make_client()
-
-    response = analyze(client, make_jpeg())
+    with make_client() as (client, _):
+        response = analyze(client, make_jpeg())
 
     assert response.status_code == 200
     with pytest.raises(ValueError, match="closed image"):
