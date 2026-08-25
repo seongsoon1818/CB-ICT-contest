@@ -5,6 +5,7 @@ import com.animalguard.repository.AnimalDetectionRepository;
 import com.animalguard.repository.DeviceCommandRepository;
 import com.animalguard.repository.DetectionEventRepository;
 import com.animalguard.repository.RiskDecisionRepository;
+import com.animalguard.service.ActuationTransportReadiness;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,7 +40,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        "animalguard.actuation.enabled=true",
+        "animalguard.actuation.risk-policy-confirmed=true"
+})
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Import(DetectionEventControllerIntegrationTest.TestClockConfiguration.class)
@@ -66,9 +70,13 @@ class DetectionEventControllerIntegrationTest {
     @Autowired
     private MutableClock clock;
 
+    @Autowired
+    private MutableActuationTransportReadiness transportReadiness;
+
     @BeforeEach
     void cleanDatabase() {
         clock.set(TEST_NOW);
+        transportReadiness.setReady(true);
         deviceCommandRepository.deleteAll();
         riskDecisionRepository.deleteAll();
         detectionEventRepository.deleteAll();
@@ -76,6 +84,8 @@ class DetectionEventControllerIntegrationTest {
 
     @Test
     void storesValidDetectionEventDetectionsModelAndRiskDecision() throws Exception {
+        transportReadiness.setReady(false);
+
         mockMvc.perform(post("/api/v1/detection/events")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(oneDetectionPayload(EVENT_ID)))
@@ -176,6 +186,22 @@ class DetectionEventControllerIntegrationTest {
     }
 
     @Test
+    void storesHighRiskEventAndDecisionWhenGlobalPreflightSuppressesCommand() throws Exception {
+        transportReadiness.setReady(false);
+
+        postHighRiskEvent(EVENT_ID, "cam-001")
+                .andExpect(jsonPath("$.riskLevel", is("HIGH")))
+                .andExpect(jsonPath("$.commandOutcome", is("SUPPRESSED")))
+                .andExpect(jsonPath("$.commandBlockers[0]", is("MQTT_PUBLISHER_NOT_READY")))
+                .andExpect(jsonPath("$.commandId").doesNotExist());
+
+        assertThat(detectionEventRepository.count()).isEqualTo(1);
+        assertThat(animalDetectionRepository.count()).isEqualTo(3);
+        assertThat(riskDecisionRepository.count()).isEqualTo(1);
+        assertThat(deviceCommandRepository.count()).isZero();
+    }
+
+    @Test
     void serializesConcurrentCommandCreationForSameDevice() throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(2);
@@ -203,6 +229,8 @@ class DetectionEventControllerIntegrationTest {
 
     @Test
     void acceptsEmptyDetectionsAsLowRiskWithoutDeviceCommand() throws Exception {
+        transportReadiness.setReady(false);
+
         mockMvc.perform(post("/api/v1/detection/events")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(emptyDetectionsPayload(EVENT_ID)))
@@ -537,6 +565,26 @@ class DetectionEventControllerIntegrationTest {
         @Primary
         MutableClock mutableClock() {
             return new MutableClock(TEST_NOW);
+        }
+
+        @Bean
+        @Primary
+        MutableActuationTransportReadiness mutableActuationTransportReadiness() {
+            return new MutableActuationTransportReadiness();
+        }
+    }
+
+    static final class MutableActuationTransportReadiness implements ActuationTransportReadiness {
+
+        private boolean ready;
+
+        void setReady(boolean ready) {
+            this.ready = ready;
+        }
+
+        @Override
+        public boolean isReady() {
+            return ready;
         }
     }
 

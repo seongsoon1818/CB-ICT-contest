@@ -1,5 +1,6 @@
 package com.animalguard.service;
 
+import com.animalguard.config.ActuationProperties;
 import com.animalguard.config.DeviceControlProperties;
 import com.animalguard.domain.ActuationBlocker;
 import com.animalguard.domain.CommandOutcome;
@@ -10,6 +11,7 @@ import com.animalguard.repository.DeviceCommandRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -26,7 +28,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import org.mockito.ArgumentCaptor;
 
 @ExtendWith(MockitoExtension.class)
 class DeviceCommandCreationServiceTest {
@@ -36,19 +37,79 @@ class DeviceCommandCreationServiceTest {
     @Mock
     private DeviceCommandRepository deviceCommandRepository;
 
+    private DeviceControlProperties properties;
     private DeviceCommandCreationService service;
 
     @BeforeEach
     void setUp() {
-        service = new DeviceCommandCreationService(
-                deviceCommandRepository,
-                new DeviceControlProperties(
-                        Duration.ofSeconds(20),
-                        Duration.ofSeconds(10),
-                        Map.of("cam-001", "pi-001")
-                ),
-                Clock.fixed(NOW, ZoneOffset.UTC)
+        properties = properties(Map.of("cam-001", "pi-001"));
+        service = service(properties, true, true, true);
+    }
+
+    @Test
+    void suppressesCommandWhenActuationIsDisabledBeforeRepositoryAccess() {
+        CommandDecision decision = service(properties, false, true, true).createIfAllowed(
+                event("event-disabled"),
+                "cam-001",
+                "risk reason"
         );
+
+        assertThat(decision.blockers()).containsExactly(ActuationBlocker.ACTUATION_DISABLED);
+        verifyNoInteractions(deviceCommandRepository);
+    }
+
+    @Test
+    void suppressesCommandWhenRiskPolicyIsUnconfirmedBeforeRepositoryAccess() {
+        CommandDecision decision = service(properties, true, false, true).createIfAllowed(
+                event("event-policy"),
+                "cam-001",
+                "risk reason"
+        );
+
+        assertThat(decision.blockers()).containsExactly(ActuationBlocker.RISK_POLICY_UNCONFIRMED);
+        verifyNoInteractions(deviceCommandRepository);
+    }
+
+    @Test
+    void suppressesCommandWhenCameraDeviceMappingIsEmptyBeforeCameraLookup() {
+        DeviceControlProperties emptyMappings = properties(Map.of());
+
+        CommandDecision decision = service(emptyMappings, true, true, true).createIfAllowed(
+                event("event-empty-mappings"),
+                "cam-001",
+                "risk reason"
+        );
+
+        assertThat(decision.blockers()).containsExactly(ActuationBlocker.CAMERA_DEVICE_MAPPING_EMPTY);
+        verifyNoInteractions(deviceCommandRepository);
+    }
+
+    @Test
+    void suppressesCommandWhenMqttPublisherIsNotReadyBeforeRepositoryAccess() {
+        CommandDecision decision = service(properties, true, true, false).createIfAllowed(
+                event("event-transport"),
+                "cam-001",
+                "risk reason"
+        );
+
+        assertThat(decision.blockers()).containsExactly(ActuationBlocker.MQTT_PUBLISHER_NOT_READY);
+        verifyNoInteractions(deviceCommandRepository);
+    }
+
+    @Test
+    void returnsEveryGlobalBlockerBeforeRepositoryAccess() {
+        CommandDecision decision = service(properties, false, false, false).createIfAllowed(
+                event("event-global-blockers"),
+                "cam-001",
+                "risk reason"
+        );
+
+        assertThat(decision.blockers()).containsExactly(
+                ActuationBlocker.ACTUATION_DISABLED,
+                ActuationBlocker.RISK_POLICY_UNCONFIRMED,
+                ActuationBlocker.MQTT_PUBLISHER_NOT_READY
+        );
+        verifyNoInteractions(deviceCommandRepository);
     }
 
     @Test
@@ -144,6 +205,33 @@ class DeviceCommandCreationServiceTest {
                 "legacy test reason",
                 createdAt,
                 createdAt.plusSeconds(10)
+        );
+    }
+
+    private DeviceCommandCreationService service(
+            DeviceControlProperties deviceControlProperties,
+            boolean enabled,
+            boolean riskPolicyConfirmed,
+            boolean transportReady
+    ) {
+        ActuationPreflightService preflightService = new ActuationPreflightService(
+                new ActuationProperties(enabled, riskPolicyConfirmed),
+                deviceControlProperties,
+                () -> transportReady
+        );
+        return new DeviceCommandCreationService(
+                deviceCommandRepository,
+                deviceControlProperties,
+                preflightService,
+                Clock.fixed(NOW, ZoneOffset.UTC)
+        );
+    }
+
+    private DeviceControlProperties properties(Map<String, String> mappings) {
+        return new DeviceControlProperties(
+                Duration.ofSeconds(20),
+                Duration.ofSeconds(10),
+                mappings
         );
     }
 
