@@ -1,6 +1,10 @@
 package com.animalguard.domain;
 
 public enum ActuationBlocker {
+    ACTUATION_DISABLED,
+    RISK_POLICY_UNCONFIRMED,
+    CAMERA_DEVICE_MAPPING_EMPTY,
+    MQTT_PUBLISHER_NOT_READY,
     CAMERA_UNMAPPED,
     COOLDOWN_ACTIVE
 }
