@@ -1,3 +1,6 @@
+import logging
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Annotated, Any, Protocol
 from uuid import uuid4
@@ -5,11 +8,11 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 
 from app.backend_client import BackendClient, BackendConflict, BackendUnavailable
+from app.engine_factory import create_inference_engine
 from app.inference import (
-    DETECTOR_VERSION,
     FrameTooLargeError,
+    InferenceEngine,
     InvalidJpegError,
-    MockInference,
     decode_jpeg,
 )
 from app.schemas import CAMERA_ID_PATTERN, DetectionEvent, ImageInfo, ModelInfo
@@ -17,6 +20,8 @@ from app.settings import Settings
 
 
 MAX_JPEG_BYTES = 5 * 1024 * 1024
+logger = logging.getLogger(__name__)
+InferenceEngineFactory = Callable[[Settings], InferenceEngine]
 
 
 class BackendClientLike(Protocol):
@@ -28,26 +33,73 @@ class BackendClientLike(Protocol):
 def create_app(
     settings: Settings | None = None,
     backend_client: BackendClientLike | None = None,
+    inference_engine_factory: InferenceEngineFactory | None = None,
 ) -> FastAPI:
     app_settings = settings or Settings.from_env()
-    inference = MockInference(app_settings.mock_result)
+    configured_engine_factory = (
+        inference_engine_factory or create_inference_engine
+    )
     configured_backend_client = backend_client
     if configured_backend_client is None and app_settings.backend_base_url is not None:
         configured_backend_client = BackendClient(app_settings.backend_base_url)
-    application = FastAPI(title="AnimalGuard AI Server")
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        engine: InferenceEngine | None = None
+        application.state.inference_engine = None
+        application.state.inference_load_error = None
+        try:
+            engine = configured_engine_factory(app_settings)
+            application.state.inference_engine = engine
+        except Exception as error:
+            application.state.inference_load_error = error
+            logger.exception(
+                "Inference engine failed to load: mode=%s",
+                app_settings.inference_mode,
+            )
+        try:
+            yield
+        finally:
+            if engine is not None:
+                try:
+                    engine.close()
+                except Exception:
+                    logger.exception("Inference engine failed to close")
+
+    application = FastAPI(
+        title="AnimalGuard AI Server",
+        lifespan=lifespan,
+    )
+
+    def require_inference_engine() -> InferenceEngine:
+        engine = application.state.inference_engine
+        if engine is None or not engine.ready:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Inference engine is not ready",
+            )
+        return engine
 
     @application.get("/health/live")
     async def live() -> dict[str, str]:
         return {"status": "UP"}
 
     @application.get("/health/ready")
-    async def ready() -> dict[str, str]:
+    async def ready() -> dict[str, str | None]:
         if app_settings.backend_base_url is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="BACKEND_BASE_URL is not configured",
             )
-        return {"status": "READY", "inference": "mock"}
+        metadata = require_inference_engine().metadata
+        return {
+            "status": "READY",
+            "inference": metadata.mode,
+            "runtime": metadata.runtime,
+            "bundleVersion": metadata.bundle_version,
+            "detectorVersion": metadata.detector_version,
+            "classifierVersion": metadata.classifier_version,
+        }
 
     @application.post("/api/v1/analyze")
     async def analyze(
@@ -58,6 +110,7 @@ def create_app(
         ],
         capturedAt: Annotated[datetime, Form()],
     ) -> dict[str, Any]:
+        inference = require_inference_engine()
         frame_media_type = (frame.content_type or "").partition(";")[0]
         if frame_media_type.strip().lower() != "image/jpeg":
             raise HTTPException(
@@ -83,7 +136,7 @@ def create_app(
             )
 
         try:
-            width, height = decode_jpeg(frame_bytes)
+            decoded_frame = decode_jpeg(frame_bytes)
         except FrameTooLargeError as error:
             raise HTTPException(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
@@ -95,34 +148,41 @@ def create_app(
                 detail=str(error),
             ) from error
 
-        event = DetectionEvent(
-            eventId=uuid4(),
-            cameraId=cameraId,
-            capturedAt=capturedAt,
-            image=ImageInfo(width=width, height=height),
-            model=ModelInfo(
-                detectorVersion=DETECTOR_VERSION,
-                classifierVersion=None,
-            ),
-            detections=inference.analyze(width, height),
-        )
-        if configured_backend_client is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Backend client is not configured",
-            )
         try:
-            return await configured_backend_client.send_detection_event(event)
-        except BackendConflict as error:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Backend reported a duplicate event",
-            ) from error
-        except BackendUnavailable as error:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Backend request failed",
-            ) from error
+            metadata = inference.metadata
+            event = DetectionEvent(
+                eventId=uuid4(),
+                cameraId=cameraId,
+                capturedAt=capturedAt,
+                image=ImageInfo(
+                    width=decoded_frame.width,
+                    height=decoded_frame.height,
+                ),
+                model=ModelInfo(
+                    detectorVersion=metadata.detector_version,
+                    classifierVersion=metadata.classifier_version,
+                ),
+                detections=inference.analyze(decoded_frame),
+            )
+            if configured_backend_client is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Backend client is not configured",
+                )
+            try:
+                return await configured_backend_client.send_detection_event(event)
+            except BackendConflict as error:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Backend reported a duplicate event",
+                ) from error
+            except BackendUnavailable as error:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Backend request failed",
+                ) from error
+        finally:
+            decoded_frame.image.close()
 
     return application
 

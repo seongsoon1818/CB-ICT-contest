@@ -1,8 +1,8 @@
 # AnimalGuard AI Server
 
-Python 3.11과 FastAPI 기반의 Mock AI Server입니다. JPEG 한 프레임을 검증하고 이미지 크기를 추출한 뒤, Detector-only Mock 탐지 결과를 AnimalGuard Detection Event v1으로 만들어 Spring Backend에 전달합니다.
+Python 3.11과 FastAPI 기반의 AI Server입니다. JPEG 한 프레임을 검증해 독립적인 RGB 픽셀 이미지로 디코딩한 뒤, 선택된 inference engine의 결과와 metadata를 AnimalGuard Detection Event v1으로 만들어 Spring Backend에 전달합니다.
 
-실제 모델 추론, 위험도 계산, 이미지 저장, 재시도는 수행하지 않습니다.
+기본 Mock engine과 모델 번들 검증·lifecycle 경계를 제공합니다. 운영 모델 runtime과 output adapter는 아직 확정되지 않아 실제 모델 adapter는 구현하지 않았습니다. 위험도 계산, 이미지 저장, 재시도는 수행하지 않습니다.
 
 ## 실행 준비
 
@@ -25,11 +25,26 @@ python -m pip install -r requirements-dev.txt
 export BACKEND_BASE_URL=http://localhost:8080
 ```
 
+inference mode 기본값은 `mock`입니다.
+
+```bash
+export INFERENCE_MODE=mock
+```
+
 Mock 결과를 비우려면 선택 환경변수를 설정합니다. 기본값은 `detected`입니다.
 
 ```bash
 export MOCK_RESULT=empty
 ```
+
+`model` mode는 시작 시 bundle을 검증하며 `MODEL_BUNDLE_DIR`가 필수입니다.
+
+```bash
+export INFERENCE_MODE=model
+export MODEL_BUNDLE_DIR=/opt/animalguard/models/current
+```
+
+현재는 운영 runtime·output adapter가 미확정이므로 유효한 bundle도 실제 runtime adapter 단계에서 명시적으로 로드 실패합니다. 이때 Mock으로 fallback하지 않습니다. 필요한 결정은 GitHub 이슈 #16에서 추적합니다.
 
 서버 실행:
 
@@ -49,10 +64,17 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ### `GET /health/ready`
 
-Mock inference가 초기화되고 `BACKEND_BASE_URL`이 설정돼 있으면 `200 OK`를 반환합니다. Readiness 검사에서 Backend 네트워크 요청은 하지 않습니다. 환경변수가 없으면 `503 Service Unavailable`입니다.
+inference engine이 준비되고 `BACKEND_BASE_URL`이 설정돼 있으면 `200 OK`를 반환합니다. Readiness 검사에서 Backend 네트워크 요청은 하지 않습니다. Backend URL이 없거나 model bundle/runtime 로딩이 실패하면 내부 경로나 exception을 노출하지 않는 `503 Service Unavailable`입니다. `/health/live`는 model 로딩 실패와 무관하게 프로세스가 동작하면 `200 OK`를 유지합니다.
 
 ```json
-{"status": "READY", "inference": "mock"}
+{
+  "status": "READY",
+  "inference": "mock",
+  "runtime": "mock",
+  "bundleVersion": null,
+  "detectorVersion": "mock-animal-detector-v1",
+  "classifierVersion": null
+}
 ```
 
 ## 프레임 분석 API
@@ -74,7 +96,7 @@ curl -X POST http://localhost:8000/api/v1/analyze \
   -F 'capturedAt=2026-08-25T02:00:00+09:00'
 ```
 
-AI Server는 매 요청마다 UUID v4 `eventId`를 생성하고, 이미지 바이너리 없이 Detection Event v1 JSON만 다음 endpoint로 한 번 전송합니다.
+AI Server는 매 요청마다 UUID v4 `eventId`를 생성하고, engine metadata의 `detectorVersion`·`classifierVersion`과 추론 결과를 사용합니다. 이미지 바이너리 없이 Detection Event v1 JSON만 다음 endpoint로 한 번 전송합니다. 디코딩된 RGB 이미지는 요청 처리가 끝나면 명시적으로 닫습니다.
 
 ```text
 POST {BACKEND_BASE_URL}/api/v1/detection/events
@@ -95,7 +117,7 @@ Backend `409`는 호출자에게 `409 Conflict`로 전달합니다. Backend `400
 | 422 | 필수 form field, `cameraId`, timezone 포함 `capturedAt` 검증 실패 |
 | 409 | Backend가 중복 `eventId`를 반환함 |
 | 502 | Backend 400·5xx, 연결 실패 또는 timeout |
-| 503 | `BACKEND_BASE_URL` 또는 Backend client가 설정되지 않음 |
+| 503 | `BACKEND_BASE_URL`/Backend client가 없거나 inference engine이 준비되지 않음 |
 
 Content-Type 비교 시 대소문자와 `;` 뒤 media type parameter는 정규화합니다. 비표준 `image/jpg`와 `application/octet-stream`은 지원하지 않습니다.
 
@@ -107,6 +129,15 @@ Content-Type 비교 시 대소문자와 `;` 뒤 media type parameter는 정규�
 - 전체 디코딩 전에 40,000,000 픽셀 상한을 적용합니다. 8K UHD 이미지는 허용 범위에 포함됩니다.
 
 이 구현에는 YOLO/PyTorch 모델, classifier, Raspberry Pi 카메라, MQTT/GPIO, 이미지 저장, queue 또는 위험도 판단이 포함되지 않습니다. 위험도와 DeviceCommand는 Backend가 결정합니다.
+
+## 모델 로딩 lifecycle
+
+- engine 생성과 model bundle 검증은 FastAPI lifespan 시작 시 한 번만 실행합니다.
+- 요청마다 manifest, class map 또는 model file을 다시 읽지 않습니다.
+- `INFERENCE_MODE=model` 로딩 실패 시 오류를 로그에 기록하고 ready/analyze를 503으로 유지합니다.
+- 로딩 실패를 숨기기 위한 Mock fallback은 하지 않습니다.
+- 프로세스 종료 시 engine의 `close()`를 호출합니다.
+- 실행 중 hot reload와 file watcher는 없습니다. 모델 교체는 `models/README.md`의 bundle symlink 변경 후 AI Server를 재시작합니다.
 
 ## 테스트
 
