@@ -14,7 +14,7 @@ POST /api/v1/detection/events
 
 - `NOT_REQUESTED`: LOW/MEDIUM이라 명령 생성 대상이 아니며 blocker가 없습니다.
 - `CREATED`: DeviceCommand가 저장됐고 기존 `commandId`가 포함됩니다.
-- `SUPPRESSED`: HIGH이지만 운영 조건 때문에 명령을 만들지 않았으며 `CAMERA_UNMAPPED` 또는 `COOLDOWN_ACTIVE` blocker가 포함됩니다.
+- `SUPPRESSED`: HIGH이지만 안전 gate 또는 운영 조건 때문에 명령을 만들지 않았으며 하나 이상의 blocker가 포함됩니다.
 
 현재 suppression 판정은 Detection Event API 응답과 event당 한 건의 Backend 명령 판정 로그로만 진단합니다. DB에는 별도 저장하지 않으므로 durable audit이 필요하면 별도 schema와 migration을 설계해야 합니다. DB 저장 실패나 잘못된 Entity 불변식 같은 시스템 오류는 `SUPPRESSED`로 변환하지 않습니다.
 
@@ -48,6 +48,49 @@ HIGH 위험 이벤트가 들어오면 매핑된 deviceId의 최신 `device_comma
 별도 상태 테이블이나 scheduler는 없습니다. `device_commands.created_at`이 source of truth이므로 애플리케이션 재시작 후에도 다음 이벤트에서 cooldown을 다시 계산합니다. cooldown은 카메라의 `capturedAt`이 아니라 Backend가 실제 command를 생성한 서버 시각을 기준으로 하며, 지연되거나 순서가 뒤바뀐 Detection Event가 장치 명령 간격을 왜곡하지 않도록 합니다.
 
 현재 command gate는 단일 Backend 인스턴스에서 모든 mapped device의 HIGH command 판단을 하나의 전역 gate로 transaction 완료까지 직렬화합니다. 따라서 선행 transaction이 완료되기 전에는 다른 device의 HIGH command 판단도 대기합니다. 다중 인스턴스 배포 전에는 DB 기반 원자적 gate 또는 분산 lock 검토가 필요합니다.
+
+## 실제 장치 작동 preflight
+
+`animalguard.actuation`은 실제 DeviceCommand 생성 허용 여부와 운영 위험 정책 확정 여부를 명시합니다.
+
+```yaml
+animalguard:
+  actuation:
+    enabled: ${ACTUATION_ENABLED:false}
+    risk-policy-confirmed: ${RISK_POLICY_CONFIRMED:false}
+```
+
+두 값의 기본값은 모두 false입니다. 이슈 #5가 완료되기 전에는 `risk-policy-confirmed=false`를 유지하며 현재 `MAGPIE`, `UNKNOWN` 점수 설정만으로 운영 정책이 확정됐다고 추정하지 않습니다. 실제 MQTT Publisher가 없는 현재 기본 `ActuationTransportReadiness`도 항상 false입니다. readiness를 운영 property로 우회할 수 없으며 다음 MQTT PR이 실제 연결 상태를 제공하는 bean으로 교체합니다.
+
+```text
+GET /api/v1/actuation/preflight
+```
+
+blocked 상태도 진단 요청 자체는 성공했으므로 `200 OK`입니다.
+
+```json
+{
+  "enabled": false,
+  "ready": false,
+  "blockers": [
+    "ACTUATION_DISABLED",
+    "RISK_POLICY_UNCONFIRMED",
+    "CAMERA_DEVICE_MAPPING_EMPTY",
+    "MQTT_PUBLISHER_NOT_READY"
+  ]
+}
+```
+
+| Blocker | 판정 근거 | 명령 생성 동작 | 해제 주체 |
+| --- | --- | --- | --- |
+| `ACTUATION_DISABLED` | `enabled=false` | 억제 | 운영 설정 |
+| `RISK_POLICY_UNCONFIRMED` | `risk-policy-confirmed=false` | 억제 | 이슈 #5와 팀 합의 |
+| `CAMERA_DEVICE_MAPPING_EMPTY` | 전체 mapping이 비어 있음 | 억제 | 배포 설정 |
+| `MQTT_PUBLISHER_NOT_READY` | transport readiness가 false | 억제 | 다음 MQTT PR |
+| `CAMERA_UNMAPPED` | 요청 cameraId가 mapping에 없음 | 억제 | 배포 설정 |
+| `COOLDOWN_ACTIVE` | 최신 command의 cooldown이 끝나지 않음 | 억제 | 시간 경과 |
+
+Preflight는 앞의 네 global blocker를 표 순서대로 모두 수집합니다. HIGH 이벤트의 command gate는 lock을 잡기 전에 global preflight를 평가하고, ready일 때만 특정 camera mapping과 cooldown을 차례로 확인합니다. 억제 상태에서도 DetectionEvent, AnimalDetection, RiskDecision은 저장하고 DeviceCommand만 생성하지 않습니다. LOW/MEDIUM은 preflight와 무관하게 `NOT_REQUESTED`입니다. 이 endpoint는 Backend 전체 health나 AI 모델 readiness를 대신하지 않습니다.
 
 ## 로컬 실행
 
@@ -99,12 +142,12 @@ Found non-empty schema(s) "public" but no schema history table. Use baseline() o
 | FAILED | `markFailed(receivedAt, reportedAt)` |
 | EXPIRED | `markExpired(receivedAt, reportedAt)` |
 
-MVP Publisher는 `CREATED` command를 조회해 주입된 Clock의 시각으로 `markPublished`하고 transaction을 commit한 뒤 MQTT client를 호출합니다. 여기서 `PUBLISHED`는 broker 전달 증명이 아니라 dispatch가 승인되어 publish 시도가 시작되었다는 뜻입니다. 이 순서로 즉시 도착한 ACK가 아직 `CREATED`인 row를 읽는 경쟁을 막습니다. MQTT 호출이 즉시 실패하면 후속 transaction에서 `FAILED`로 기록하며, commit 뒤 process crash로 `PUBLISHED`에 남는 경우는 후속 reconciliation 범위입니다.
+다음 MVP Publisher는 dispatch 직전에 `ActuationPreflightService`를 다시 평가하고 `CREATED` command의 `expiresAt`을 검사합니다. preflight가 blocked이거나 command가 만료됐으면 publish하지 않습니다. 통과한 command는 주입된 Clock의 시각으로 `markPublished`하고 transaction을 commit한 뒤 MQTT client를 호출합니다. 여기서 `PUBLISHED`는 broker 전달 증명이 아니라 dispatch가 승인되어 publish 시도가 시작되었다는 뜻입니다. 이 순서로 즉시 도착한 ACK가 아직 `CREATED`인 row를 읽는 경쟁을 막습니다. MQTT 호출이 즉시 실패하면 후속 transaction에서 `FAILED`로 기록합니다.
 
 기존 `acknowledged_at`, `executed_at`, `failed_at`, `expired_at`은 Backend가 ACK를 받은 시각 또는 자체 실패·만료를 결정한 시각입니다. ACK payload의 장치 시각은 각각 `acknowledged_reported_at`, `executed_reported_at`, `failed_reported_at`, `expired_reported_at`에 별도로 저장합니다. 상태 순서는 Backend 시각끼리만 비교하고 장치 시각과 Backend 시각을 직접 비교하지 않습니다. ACKNOWLEDGED와 EXECUTED의 장치 보고 시각은 필수이고, Backend 자체 실패·만료에는 장치 보고 시각이 없을 수 있습니다.
 
 ACK Subscriber는 ACK의 의미에 따라 transition method를 호출합니다. `CREATED → PUBLISHED → ACKNOWLEDGED → EXECUTED`, `PUBLISHED/ACKNOWLEDGED → FAILED`, `CREATED/PUBLISHED → EXPIRED`만 허용하며 같은 상태의 QoS 1 중복 적용은 최초 Backend/장치 timestamp를 모두 보존하는 no-op입니다. 순서를 건너뛰거나 terminal 상태를 바꾸거나 이전 Backend timestamp를 적용하면 Entity를 변경하기 전에 거절합니다. `@Version`은 동시 writer의 lost update를 감지합니다. 후속 handler는 optimistic-lock 충돌 시 상태를 다시 읽고 같은 상태나 이미 진행된 상태는 멱등 처리하며 충돌하는 terminal 상태는 거절하고 기록해야 합니다. DB 충돌을 이유로 MQTT publish를 자동 재시도해서는 안 됩니다.
 
-현재 production code에서 `DeviceCommandCreationService`가 `CREATED`를 만들고 V2 migration이 legacy row를 `EXPIRED`로 전환합니다. `markPublished`, `markAcknowledged`, `markExecuted`, `markFailed`, `markExpired`는 현재 domain test로만 검증되며 실제 호출자는 다음 Publisher/ACK Subscriber PR에서 추가합니다.
+현재 production code에서 `DeviceCommandCreationService`가 preflight를 통과한 `CREATED`를 만들고 V2 migration이 legacy row를 `EXPIRED`로 전환합니다. `markPublished`, `markAcknowledged`, `markExecuted`, `markFailed`, `markExpired`는 현재 domain test로만 검증되며 실제 호출자는 다음 Publisher/ACK Subscriber PR에서 추가합니다.
 
-이번 단계에서는 실제 MQTT Publisher/Subscriber, publish 실패 retry, `PUBLISHED` reconciliation, 오래된 `ACKNOWLEDGED` reconciliation, outbox/inbox, broker 장애 복구, 다중 Backend 인스턴스 conflict handler, actuation readiness/preflight, GPIO 실행 코드, AI 모델과 위험 점수 정책을 구현하지 않습니다.
+다음 Publisher PR은 이 기능 도입 전에 존재하는 `CREATED` command를 조회할지, 만료 처리할지, 어떤 범위부터 dispatch할지 명시적으로 결정해야 합니다. 이번 단계에서는 그 처리 정책, `PUBLISHED` reconciliation, 오래된 `ACKNOWLEDGED` reconciliation, outbox/inbox, publish retry, 다중 Backend 인스턴스, broker 인증/TLS와 장애 복구를 해결하지 않습니다. 실제 MQTT Publisher/Subscriber, GPIO 실행 코드, AI 모델과 위험 점수 정책도 구현하지 않습니다.
