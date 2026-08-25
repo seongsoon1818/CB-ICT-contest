@@ -1,3 +1,4 @@
+import json
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,7 @@ from PIL import Image
 
 from app.inference import DecodedFrame, InferenceMetadata
 from app.main import create_app
+from app.model_bundle import ModelBundleLoader
 from app.schemas import DetectionEvent
 from app.settings import Settings
 
@@ -214,3 +216,99 @@ def test_default_model_factory_validates_bundle_only_once(
     assert load_count == 1
     assert first.status_code == 503
     assert second.status_code == 503
+
+
+def write_bundle(directory: Path, version: str) -> None:
+    directory.mkdir(parents=True)
+    manifest = {
+        "schemaVersion": "animalguard-model-bundle-v1",
+        "bundleVersion": version,
+        "runtime": "fake-runtime",
+        "modelApiVersion": "animalguard-detection-v1",
+        "outputAdapter": "fake-detect-v1",
+        "detector": {
+            "file": "detector.bin",
+            "version": f"detector-{version}",
+            "inputWidth": 640,
+            "inputHeight": 640,
+            "colorSpace": "RGB",
+            "resizeMode": "letterbox",
+            "confidenceThreshold": 0.25,
+            "nmsThreshold": 0.45,
+        },
+        "classifier": None,
+        "classMapFile": "classes.json",
+        "unknownClassCode": "UNKNOWN",
+    }
+    class_map = {
+        "schemaVersion": "animalguard-class-map-v1",
+        "classes": [{"id": 0, "classCode": "MAGPIE"}],
+        "unknownClassCode": "UNKNOWN",
+    }
+    (directory / "model-manifest.json").write_text(
+        json.dumps(manifest),
+        encoding="utf-8",
+    )
+    (directory / "classes.json").write_text(
+        json.dumps(class_map),
+        encoding="utf-8",
+    )
+    (directory / "detector.bin").write_text("dummy", encoding="utf-8")
+
+
+def test_restart_loads_bundle_selected_by_updated_current_symlink(
+    tmp_path: Path,
+) -> None:
+    releases = tmp_path / "releases"
+    v1 = releases / "v1"
+    v2 = releases / "v2"
+    current = tmp_path / "current"
+    write_bundle(v1, "v1")
+    write_bundle(v2, "v2")
+    current.symlink_to(v1)
+
+    created_engines: list[FakeInferenceEngine] = []
+
+    def fake_runtime_factory(settings: Settings) -> FakeInferenceEngine:
+        assert settings.model_bundle_dir is not None
+        bundle = ModelBundleLoader().load(settings.model_bundle_dir)
+        engine = FakeInferenceEngine(
+            InferenceMetadata(
+                mode="model",
+                runtime=bundle.manifest.runtime,
+                bundle_version=bundle.manifest.bundle_version,
+                detector_version=bundle.manifest.detector.version,
+                classifier_version=None,
+            )
+        )
+        created_engines.append(engine)
+        return engine
+
+    settings = Settings(
+        backend_base_url="http://backend.example",
+        inference_mode="model",
+        model_bundle_dir=current,
+    )
+    first_application = create_app(
+        settings,
+        backend_client=RecordingBackendClient(),
+        inference_engine_factory=fake_runtime_factory,
+    )
+    with TestClient(first_application) as client:
+        first_ready = client.get("/health/ready")
+
+    current.unlink()
+    current.symlink_to(v2)
+    second_application = create_app(
+        settings,
+        backend_client=RecordingBackendClient(),
+        inference_engine_factory=fake_runtime_factory,
+    )
+    with TestClient(second_application) as client:
+        second_ready = client.get("/health/ready")
+
+    assert first_ready.json()["bundleVersion"] == "v1"
+    assert first_ready.json()["detectorVersion"] == "detector-v1"
+    assert second_ready.json()["bundleVersion"] == "v2"
+    assert second_ready.json()["detectorVersion"] == "detector-v2"
+    assert [engine.close_count for engine in created_engines] == [1, 1]
