@@ -2,7 +2,7 @@
 
 Python 3.11과 FastAPI 기반의 AI Server입니다. JPEG 한 프레임을 검증해 독립적인 RGB 픽셀 이미지로 디코딩한 뒤, 선택된 inference engine의 결과와 metadata를 AnimalGuard Detection Event v1으로 만들어 Spring Backend에 전달합니다.
 
-기본 Mock engine과 모델 번들 검증·lifecycle 경계를 제공합니다. 운영 모델 runtime과 output adapter는 아직 확정되지 않아 실제 모델 adapter는 구현하지 않았습니다. 위험도 계산, 이미지 저장, 재시도는 수행하지 않습니다.
+기본 Mock engine과 모델 번들 검증·lifecycle 경계를 제공합니다. 운영 모델 runtime과 output adapter는 아직 확정되지 않아 실제 모델 adapter는 구현하지 않았습니다. 위험도 계산과 재시도는 수행하지 않습니다. 이미지 저장은 기본적으로 꺼져 있으며, 운영자가 실시간 확인을 요청한 경우에만 제한된 rolling frame evidence를 활성화할 수 있습니다.
 
 ## 실행 준비
 
@@ -128,7 +128,41 @@ Content-Type 비교 시 대소문자와 `;` 뒤 media type parameter는 정규�
 - detector version은 `mock-animal-detector-v1`입니다.
 - 전체 디코딩 전에 40,000,000 픽셀 상한을 적용합니다. 8K UHD 이미지는 허용 범위에 포함됩니다.
 
-이 구현에는 YOLO/PyTorch 모델, classifier, Raspberry Pi 카메라, MQTT/GPIO, 이미지 저장, queue 또는 위험도 판단이 포함되지 않습니다. 위험도와 DeviceCommand는 Backend가 결정합니다.
+이 구현에는 YOLO/PyTorch 모델, classifier, Raspberry Pi 카메라, MQTT/GPIO, 무제한·영구 이미지 저장, queue 또는 위험도 판단이 포함되지 않습니다. 위험도와 DeviceCommand는 Backend가 결정합니다.
+
+## 실시간 확인용 rolling frame evidence
+
+기본값 `FRAME_EVIDENCE_MODE=off`에서는 JPEG를 파일로 남기지 않습니다. 운영자가 최근 분석 프레임을 실시간으로 확인해야 할 때만 다음처럼 `rolling` mode를 활성화합니다.
+
+```bash
+export FRAME_EVIDENCE_MODE=rolling
+export FRAME_EVIDENCE_DIR=/var/lib/animalguard/frame-evidence
+export FRAME_EVIDENCE_MAX_FILES_PER_CAMERA=60
+export FRAME_EVIDENCE_MIN_INTERVAL_SECONDS=1
+export FRAME_EVIDENCE_MAX_BYTES_PER_CAMERA=104857600
+```
+
+환경변수의 의미는 다음과 같습니다.
+
+- `FRAME_EVIDENCE_DIR`: 외부에 공개하지 않는 서버 내부 저장 디렉터리
+- `FRAME_EVIDENCE_MAX_FILES_PER_CAMERA`: 카메라별로 유지할 JPEG/JSON 쌍의 최대 개수
+- `FRAME_EVIDENCE_MIN_INTERVAL_SECONDS`: 같은 카메라의 확인용 저장 사이 최소 간격
+- `FRAME_EVIDENCE_MAX_BYTES_PER_CAMERA`: 카메라별 JPEG와 JSON을 합한 최대 바이트
+
+정상 JPEG 디코딩, inference, Backend 저장까지 성공한 요청만 evidence 후보가 됩니다. 카메라별 최소 간격 안에 들어온 프레임은 분석과 Backend 전달은 그대로 수행하지만 파일로 저장하지 않습니다. 새 JPEG/JSON 쌍을 원자적으로 게시한 뒤 개수 또는 용량 제한을 넘으면 가장 오래된 완전한 쌍부터 삭제합니다. 시작 시 남아 있는 임시 파일과 한쪽만 존재하는 불완전한 쌍도 정리합니다. Evidence 저장 실패는 로그에 남지만 성공한 분석 응답을 실패로 바꾸지 않습니다.
+
+저장 구조는 다음과 같습니다.
+
+```text
+frame-evidence/
+└── cam-001/
+    ├── 20260827T010001.000000Z_<eventId>.jpg
+    └── 20260827T010001.000000Z_<eventId>.json
+```
+
+JPEG는 AI Server가 수신한 원본 바이트이고 JSON에는 같은 `eventId`, `cameraId`, 수신 시각, SHA-256, image/model metadata, detections와 bbox가 들어갑니다. 원본 JPEG에 bbox를 직접 그리지 않으므로 JSON과 쌍으로 대조해야 합니다. 디렉터리와 파일은 각각 실행 사용자 전용 `0700`/`0600` 권한으로 생성됩니다.
+
+기본값 60장과 1초 간격이면 카메라별 최근 약 1분을 볼 수 있습니다. 실제 보이는 시간 범위는 저장 간격과 성공한 분석 요청 빈도에 따라 달라집니다. Mock mode의 `MAGPIE`와 중앙 bbox는 파이프라인 확인용 고정 결과이므로 실제 모델 인식 품질의 증거가 아닙니다. 실제 모델 검증은 `INFERENCE_MODE=model`과 승인된 bundle/runtime을 적용한 뒤 수행해야 합니다.
 
 ## 모델 로딩 lifecycle
 

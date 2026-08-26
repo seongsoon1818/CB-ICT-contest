@@ -18,6 +18,7 @@ out/
 __pycache__/
 *.py[cod]
 .venv/
+.venv-test/
 venv/
 env/
 .pytest_cache/
@@ -33,6 +34,7 @@ env/
 *.sqlite3
 mosquitto/data/
 mosquitto/log/
+frame-evidence/
 
 # Logs and OS metadata
 logs/

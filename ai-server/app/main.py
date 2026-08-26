@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -9,6 +10,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 
 from app.backend_client import BackendClient, BackendConflict, BackendUnavailable
 from app.engine_factory import create_inference_engine
+from app.frame_evidence import RollingFrameEvidenceStore
 from app.inference import (
     FrameTooLargeError,
     InferenceEngine,
@@ -17,7 +19,6 @@ from app.inference import (
 )
 from app.schemas import CAMERA_ID_PATTERN, DetectionEvent, ImageInfo, ModelInfo
 from app.settings import Settings
-
 
 MAX_JPEG_BYTES = 5 * 1024 * 1024
 logger = logging.getLogger(__name__)
@@ -30,10 +31,15 @@ class BackendClientLike(Protocol):
     ) -> dict[str, Any]: ...
 
 
+class FrameEvidenceStoreLike(Protocol):
+    def record(self, frame_bytes: bytes, event: DetectionEvent) -> bool: ...
+
+
 def create_app(
     settings: Settings | None = None,
     backend_client: BackendClientLike | None = None,
     inference_engine_factory: InferenceEngineFactory | None = None,
+    frame_evidence_store: FrameEvidenceStoreLike | None = None,
 ) -> FastAPI:
     app_settings = settings or Settings.from_env()
     configured_engine_factory = (
@@ -42,6 +48,20 @@ def create_app(
     configured_backend_client = backend_client
     if configured_backend_client is None and app_settings.backend_base_url is not None:
         configured_backend_client = BackendClient(app_settings.backend_base_url)
+    configured_evidence_store = frame_evidence_store
+    if (
+        configured_evidence_store is None
+        and app_settings.frame_evidence.mode == "rolling"
+    ):
+        try:
+            configured_evidence_store = RollingFrameEvidenceStore(
+                app_settings.frame_evidence
+            )
+        except OSError:
+            logger.exception(
+                "Frame evidence initialization failed; storage is disabled"
+            )
+            configured_evidence_store = None
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -170,7 +190,9 @@ def create_app(
                     detail="Backend client is not configured",
                 )
             try:
-                return await configured_backend_client.send_detection_event(event)
+                backend_response = (
+                    await configured_backend_client.send_detection_event(event)
+                )
             except BackendConflict as error:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -181,6 +203,20 @@ def create_app(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail="Backend request failed",
                 ) from error
+            if configured_evidence_store is not None:
+                try:
+                    await asyncio.to_thread(
+                        configured_evidence_store.record,
+                        frame_bytes,
+                        event,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Frame evidence write failed: camera_id=%s event_id=%s",
+                        event.cameraId,
+                        event.eventId,
+                    )
+            return backend_response
         finally:
             decoded_frame.image.close()
 
