@@ -17,6 +17,14 @@ animalguard:
     continuity-timeout: 3s
     sound-alert-duration: 2s
     deterrent-full-duration: 5s
+    no-event-timeout: 10s
+    deterrent-repeat-interval: 0s
+  reconciliation:
+    # Keep background scheduling dormant; reconciliation tests invoke a scan explicitly.
+    scan-interval: 1h
+    published-timeout: 15s
+    acknowledged-timeout: 15s
+    max-automatic-attempts-per-session: 3
   device-control:
     cooldown: 20s
     command-ttl: 10s
