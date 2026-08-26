@@ -1,6 +1,7 @@
 package com.animalguard.service;
 
 import com.animalguard.config.DeviceControlProperties;
+import com.animalguard.config.ReconciliationProperties;
 import com.animalguard.domain.ActuationBlocker;
 import com.animalguard.domain.DetectionEvent;
 import com.animalguard.domain.DeviceCommand;
@@ -28,6 +29,7 @@ public class DeviceCommandCreationService {
     private final DeviceCommandRepository deviceCommandRepository;
     private final DeviceControlProperties properties;
     private final ActuationPreflightService preflightService;
+    private final ReconciliationProperties reconciliationProperties;
     private final Clock clock;
     private final ReentrantLock commandGate = new ReentrantLock(true);
 
@@ -38,6 +40,45 @@ public class DeviceCommandCreationService {
             Integer durationMs,
             String reason
     ) {
+        return createAutomaticIfAllowed(
+                event,
+                cameraId,
+                commandType,
+                durationMs,
+                reason,
+                null
+        );
+    }
+
+    public CommandDecision createAutomaticForSessionIfAllowed(
+            DetectionEvent event,
+            String cameraId,
+            DeviceCommandType commandType,
+            Integer durationMs,
+            String reason,
+            Instant sessionFirstDetectedAt
+    ) {
+        return createAutomaticIfAllowed(
+                event,
+                cameraId,
+                commandType,
+                durationMs,
+                reason,
+                java.util.Objects.requireNonNull(
+                        sessionFirstDetectedAt,
+                        "sessionFirstDetectedAt must not be null"
+                )
+        );
+    }
+
+    private CommandDecision createAutomaticIfAllowed(
+            DetectionEvent event,
+            String cameraId,
+            DeviceCommandType commandType,
+            Integer durationMs,
+            String reason,
+            Instant sessionFirstDetectedAt
+    ) {
         List<ActuationBlocker> globalBlockers = preflightService.blockersForAutomaticCommand(commandType);
         if (!globalBlockers.isEmpty()) {
             return CommandDecision.suppressed(globalBlockers);
@@ -46,6 +87,15 @@ public class DeviceCommandCreationService {
         String deviceId = properties.cameraDeviceMappings().get(cameraId);
         if (deviceId == null) {
             return CommandDecision.suppressed(List.of(ActuationBlocker.CAMERA_UNMAPPED));
+        }
+        if (sessionFirstDetectedAt != null
+                && deviceCommandRepository.countAutomaticAttemptsInObservationSession(
+                cameraId,
+                DeviceCommandSource.AUTOMATIC,
+                commandType,
+                sessionFirstDetectedAt
+        ) >= reconciliationProperties.maxAutomaticAttemptsPerSession()) {
+            return CommandDecision.suppressed(List.of(ActuationBlocker.AUTOMATIC_RETRY_EXHAUSTED));
         }
 
         commandGate.lock();

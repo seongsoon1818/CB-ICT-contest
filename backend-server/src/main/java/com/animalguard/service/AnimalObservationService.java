@@ -225,12 +225,13 @@ public class AnimalObservationService {
             ObservationTrigger trigger,
             Instant now
     ) {
-        CommandDecision decision = commandCreationService.createAutomaticIfAllowed(
+        CommandDecision decision = commandCreationService.createAutomaticForSessionIfAllowed(
                 event,
                 cameraId,
                 commandType,
                 durationMs,
-                reason
+                reason,
+                state.getFirstDetectedAt()
         );
         if (decision.outcome() == CommandOutcome.NOT_REQUESTED) {
             throw new IllegalStateException("automatic command intent must produce CREATED or SUPPRESSED");

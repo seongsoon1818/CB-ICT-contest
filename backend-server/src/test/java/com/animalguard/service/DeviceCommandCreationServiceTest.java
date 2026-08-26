@@ -2,6 +2,7 @@ package com.animalguard.service;
 
 import com.animalguard.config.ActuationProperties;
 import com.animalguard.config.DeviceControlProperties;
+import com.animalguard.config.ReconciliationProperties;
 import com.animalguard.domain.ActuationBlocker;
 import com.animalguard.domain.CommandOutcome;
 import com.animalguard.domain.DetectionEvent;
@@ -308,6 +309,30 @@ class DeviceCommandCreationServiceTest {
         assertThat(decision.blockers()).isEmpty();
     }
 
+    @Test
+    void suppressesAutomaticCommandWhenSessionAttemptLimitIsReached() {
+        Instant sessionStartedAt = NOW.minusSeconds(30);
+        when(deviceCommandRepository.countAutomaticAttemptsInObservationSession(
+                "cam-001",
+                DeviceCommandSource.AUTOMATIC,
+                DeviceCommandType.SOUND_ALERT,
+                sessionStartedAt
+        )).thenReturn(3L);
+
+        CommandDecision decision = service.createAutomaticForSessionIfAllowed(
+                event("event-attempt-exhausted"),
+                "cam-001",
+                DeviceCommandType.SOUND_ALERT,
+                2_000,
+                "FIRST_ANIMAL_DETECTION",
+                sessionStartedAt
+        );
+
+        assertThat(decision.outcome()).isEqualTo(CommandOutcome.SUPPRESSED);
+        assertThat(decision.blockers()).containsExactly(ActuationBlocker.AUTOMATIC_RETRY_EXHAUSTED);
+        verify(deviceCommandRepository, never()).save(any(DeviceCommand.class));
+    }
+
     private DeviceCommand commandCreatedAt(Instant createdAt) {
         return new DeviceCommand(
                 "command-existing",
@@ -337,6 +362,12 @@ class DeviceCommandCreationServiceTest {
                 deviceCommandRepository,
                 deviceControlProperties,
                 preflightService,
+                new ReconciliationProperties(
+                        Duration.ofSeconds(1),
+                        Duration.ofSeconds(15),
+                        Duration.ofSeconds(15),
+                        3
+                ),
                 Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
