@@ -28,6 +28,24 @@ public class ApiExceptionHandler {
                 .body(new ApiError("OPERATOR_AUTHENTICATION_FAILED", exception.getMessage()));
     }
 
+    @ExceptionHandler(UnsupportedManualCommandException.class)
+    public ResponseEntity<ApiError> handleUnsupportedManualCommand(UnsupportedManualCommandException exception) {
+        return ResponseEntity.badRequest()
+                .body(new ApiError("UNSUPPORTED_MANUAL_COMMAND", exception.getMessage()));
+    }
+
+    @ExceptionHandler(UnknownDeviceException.class)
+    public ResponseEntity<ApiError> handleUnknownDevice(UnknownDeviceException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError("UNKNOWN_DEVICE", exception.getMessage()));
+    }
+
+    @ExceptionHandler(ManualCommandConflictException.class)
+    public ResponseEntity<ApiError> handleManualCommandConflict(ManualCommandConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError("MANUAL_COMMAND_CONFLICT", exception.getMessage()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException exception) {
         List<ValidationViolation> violations = exception.getBindingResult().getAllErrors().stream()
