@@ -14,7 +14,9 @@ public record ObservationProperties(
         @NotNull Duration absenceGrace,
         @NotNull Duration continuityTimeout,
         @NotNull Duration soundAlertDuration,
-        @NotNull Duration deterrentFullDuration
+        @NotNull Duration deterrentFullDuration,
+        @NotNull Duration noEventTimeout,
+        @NotNull Duration deterrentRepeatInterval
 ) {
     @AssertTrue(message = "all observation durations must be positive")
     public boolean isAllDurationsPositive() {
@@ -22,7 +24,13 @@ public record ObservationProperties(
                 && isPositive(absenceGrace)
                 && isPositive(continuityTimeout)
                 && isPositive(soundAlertDuration)
-                && isPositive(deterrentFullDuration);
+                && isPositive(deterrentFullDuration)
+                && isPositive(noEventTimeout);
+    }
+
+    @AssertTrue(message = "deterrentRepeatInterval must not be negative")
+    public boolean isDeterrentRepeatIntervalNotNegative() {
+        return deterrentRepeatInterval == null || !deterrentRepeatInterval.isNegative();
     }
 
     @AssertTrue(message = "continuityTimeout must be greater than or equal to absenceGrace")

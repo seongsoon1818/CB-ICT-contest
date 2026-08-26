@@ -9,7 +9,8 @@ import java.time.Clock;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({
         DeviceControlProperties.class,
-        ActuationProperties.class
+        ActuationProperties.class,
+        ReconciliationProperties.class
 })
 public class DeviceControlConfiguration {
 

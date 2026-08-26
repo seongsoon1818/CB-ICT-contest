@@ -49,6 +49,13 @@ animalguard:
     continuity-timeout: ${ANIMAL_CONTINUITY_TIMEOUT:3s}
     sound-alert-duration: ${SOUND_ALERT_DURATION:2s}
     deterrent-full-duration: ${DETERRENT_FULL_DURATION:5s}
+    no-event-timeout: ${ANIMAL_NO_EVENT_TIMEOUT:10s}
+    deterrent-repeat-interval: ${DETERRENT_REPEAT_INTERVAL:0s}
+  reconciliation:
+    scan-interval: ${COMMAND_RECONCILIATION_INTERVAL:1s}
+    published-timeout: ${COMMAND_PUBLISHED_TIMEOUT:15s}
+    acknowledged-timeout: ${COMMAND_ACKNOWLEDGED_TIMEOUT:15s}
+    max-automatic-attempts-per-session: ${MAX_AUTOMATIC_ATTEMPTS_PER_SESSION:3}
   actuation:
     enabled: ${ACTUATION_ENABLED:false}
     risk-policy-confirmed: ${RISK_POLICY_CONFIRMED:false}
