@@ -15,3 +15,6 @@ def test_systemd_unit_limits_restart_loop_and_grants_camera_group() -> None:
     assert "StartLimitBurst=3" in unit
     assert "SupplementaryGroups=video" in unit
     assert "Restart=on-failure" in unit
+    assert "KillSignal=SIGTERM" in unit
+    assert "TimeoutStopSec=15" in unit
+    assert "python -m animalguard_camera.main" in unit
