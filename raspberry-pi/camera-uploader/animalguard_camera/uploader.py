@@ -54,7 +54,11 @@ class FrameUploader:
 
         summary = _summarize_response(response)
         if 200 <= response.status_code < 300:
-            LOGGER.info("Frame upload succeeded: status=%s %s", response.status_code, summary)
+            LOGGER.debug(
+                "Frame upload succeeded: status=%s %s",
+                response.status_code,
+                summary,
+            )
             return UploadResult.SUCCESS
         if response.status_code in {401, 403}:
             if not self._authentication_error_logged:

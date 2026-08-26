@@ -45,12 +45,18 @@ def test_picamera2_is_initialized_once_captures_jpeg_and_closes(
             self.closed = False
             instances.append(self)
 
-        def create_still_configuration(self, **configuration: object) -> object:
-            assert configuration == {"main": {"size": (640, 480)}}
+        def create_video_configuration(self, **configuration: object) -> object:
+            assert configuration == {
+                "main": {"size": (640, 480)},
+                "controls": {"FrameRate": 30.0},
+            }
             return configuration
 
         def configure(self, configuration: object) -> None:
-            assert configuration == {"main": {"size": (640, 480)}}
+            assert configuration == {
+                "main": {"size": (640, 480)},
+                "controls": {"FrameRate": 30.0},
+            }
 
         def start(self) -> None:
             self.started = True
@@ -72,7 +78,7 @@ def test_picamera2_is_initialized_once_captures_jpeg_and_closes(
         SimpleNamespace(Picamera2=FakePicamera2),
     )
 
-    source = Picamera2FrameSource(width=640, height=480)
+    source = Picamera2FrameSource(width=640, height=480, target_fps=30.0)
 
     assert source.capture_jpeg() == b"jpeg-frame"
     assert len(instances) == 1
@@ -88,7 +94,7 @@ def test_picamera2_initialization_failure_closes_camera(
 ) -> None:
     camera = SimpleNamespace(closed=False)
 
-    def create_still_configuration(**configuration: object) -> object:
+    def create_video_configuration(**configuration: object) -> object:
         return configuration
 
     def configure(configuration: object) -> None:
@@ -97,7 +103,7 @@ def test_picamera2_initialization_failure_closes_camera(
     def close() -> None:
         camera.closed = True
 
-    camera.create_still_configuration = create_still_configuration
+    camera.create_video_configuration = create_video_configuration
     camera.configure = configure
     camera.close = close
     monkeypatch.setitem(
