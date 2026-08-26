@@ -4,8 +4,11 @@ from datetime import datetime, timezone
 
 import pytest
 
+import animalguard_camera.main as main_module
 from animalguard_camera.latest_frame import CapturedFrame, LatestFrameSlot
 from animalguard_camera.main import (
+    ConfigurationRejectedError,
+    _raise_recorded_errors,
     log_runtime_snapshot,
     run_capture_producer,
     run_service,
@@ -353,7 +356,14 @@ def test_configuration_error_stops_the_whole_service() -> None:
     uploader = ResultUploader(UploadResult.CONFIGURATION_ERROR)
     slot.publish(make_frame(1))
 
-    run_upload_worker(slot, uploader, stats, stop_event, 0.0)  # type: ignore[arg-type]
+    with pytest.raises(ConfigurationRejectedError, match="configuration"):
+        run_upload_worker(
+            slot,
+            uploader,  # type: ignore[arg-type]
+            stats,
+            stop_event,
+            0.0,
+        )
 
     assert stop_event.is_set()
     assert slot.wait_for_newer(0, threading.Event()) is None
@@ -391,19 +401,76 @@ def test_runtime_snapshot_log_contains_only_aggregate_fields(
     assert "jpeg" not in caplog.text.lower()
 
 
-def test_service_closes_resources_after_configuration_stop() -> None:
+def test_service_raises_and_closes_resources_after_configuration_stop() -> None:
     source = SequenceSource([b"frame"])
     uploader = ResultUploader(UploadResult.CONFIGURATION_ERROR)
 
-    run_service(
-        Settings("http://ai.example", "cam-001", capture_fps=30),
-        source=source,
-        uploader=uploader,  # type: ignore[arg-type]
-    )
+    with pytest.raises(ConfigurationRejectedError, match="configuration"):
+        run_service(
+            Settings("http://ai.example", "cam-001", capture_fps=30),
+            source=source,
+            uploader=uploader,  # type: ignore[arg-type]
+        )
 
     assert source.closed
     assert uploader.closed
     assert uploader.uploaded == [b"frame"]
+
+
+def test_main_reports_runtime_failure_and_returns_one(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(main_module.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(
+        main_module.Settings,
+        "from_env",
+        lambda: Settings("http://ai.example", "cam-001"),
+    )
+
+    def fail_during_runtime(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("connection pool exhausted")
+
+    monkeypatch.setattr(main_module, "run_service", fail_during_runtime)
+
+    with caplog.at_level(logging.ERROR):
+        assert main_module.main() == 1
+
+    assert "Camera uploader stopped after an error" in caplog.text
+    assert "failed to start" not in caplog.text
+
+
+def test_main_reports_settings_failure_as_startup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(main_module.signal, "signal", lambda *args: None)
+
+    def reject_settings() -> Settings:
+        raise ValueError("CAMERA_ID is required")
+
+    monkeypatch.setattr(main_module.Settings, "from_env", reject_settings)
+
+    with caplog.at_level(logging.ERROR):
+        assert main_module.main() == 1
+
+    assert "Camera uploader failed to start" in caplog.text
+
+
+def test_secondary_worker_errors_are_logged_before_first_error_is_raised(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    errors = [ValueError("first failure"), RuntimeError("second failure")]
+
+    with caplog.at_level(logging.ERROR), pytest.raises(
+        ValueError,
+        match="first failure",
+    ):
+        _raise_recorded_errors(errors)
+
+    assert "Additional camera uploader worker error" in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert "second failure" in caplog.text
 
 
 def test_unexpected_upload_error_escapes_after_resources_are_closed() -> None:

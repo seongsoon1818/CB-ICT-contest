@@ -20,6 +20,10 @@ LOGGER = logging.getLogger(__name__)
 CAPTURE_WARNING_INTERVAL_SECONDS = 10.0
 
 
+class ConfigurationRejectedError(RuntimeError):
+    pass
+
+
 def run_capture_producer(
     source: FrameSource,
     slot: LatestFrameSlot,
@@ -106,7 +110,9 @@ def run_upload_worker(
                     "Stopping camera uploader because its configuration was rejected"
                 )
                 slot.request_stop(stop_event)
-                break
+                raise ConfigurationRejectedError(
+                    "AI Server rejected the camera uploader configuration"
+                )
             case UploadResult.TRANSIENT_ERROR:
                 stats.record_upload_transient_error()
                 if wait_for_stop(transient_backoff_seconds):
@@ -136,6 +142,18 @@ def log_runtime_snapshot(snapshot: RuntimeSnapshot) -> None:
         snapshot.effective_upload_fps,
         latest_age,
     )
+
+
+def _raise_recorded_errors(errors: list[Exception]) -> None:
+    if not errors:
+        return
+    for additional_error in errors[1:]:
+        LOGGER.error(
+            "Additional camera uploader worker error: %s (%s)",
+            type(additional_error).__name__,
+            additional_error,
+        )
+    raise errors[0]
 
 
 def run_service(
@@ -215,8 +233,7 @@ def run_service(
             configured_source.close()
         log_runtime_snapshot(stats.snapshot(monotonic()))
 
-    if errors:
-        raise errors[0]
+    _raise_recorded_errors(errors)
 
 
 def _create_source(settings: Settings) -> FrameSource:
@@ -248,15 +265,20 @@ def main() -> int:
 
     try:
         settings = Settings.from_env()
-        LOGGER.info(
-            "Starting camera uploader: camera_id=%s source=%s capture_fps=%s",
-            settings.camera_id,
-            settings.camera_source,
-            settings.capture_fps,
-        )
-        run_service(settings, stop_event=stop_event)
     except (OSError, RuntimeError, ValueError) as error:
         LOGGER.error("Camera uploader failed to start: %s", error)
+        return 1
+
+    LOGGER.info(
+        "Starting camera uploader: camera_id=%s source=%s capture_fps=%s",
+        settings.camera_id,
+        settings.camera_source,
+        settings.capture_fps,
+    )
+    try:
+        run_service(settings, stop_event=stop_event)
+    except Exception as error:
+        LOGGER.error("Camera uploader stopped after an error: %s", error)
         return 1
     return 0
 
