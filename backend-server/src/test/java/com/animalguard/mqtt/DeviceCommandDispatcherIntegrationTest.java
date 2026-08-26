@@ -7,6 +7,7 @@ import com.animalguard.domain.DeviceCommandStatus;
 import com.animalguard.domain.DeviceCommandType;
 import com.animalguard.repository.DetectionEventRepository;
 import com.animalguard.repository.DeviceCommandRepository;
+import com.animalguard.repository.RiskDecisionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +31,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "animalguard.mqtt.dispatch-interval=1h",
         "animalguard.actuation.enabled=true",
         "animalguard.actuation.risk-policy-confirmed=true",
+        "animalguard.response-policy.enabled=true",
+        "animalguard.response-policy.allowed-class-codes=MAGPIE",
         "animalguard.operator-api.enabled=true",
         "animalguard.operator-api.token=fake-test-operator-token"
 })
@@ -49,6 +52,9 @@ class DeviceCommandDispatcherIntegrationTest {
     private DetectionEventRepository eventRepository;
 
     @Autowired
+    private RiskDecisionRepository riskDecisionRepository;
+
+    @Autowired
     private TransactionTemplate transactionTemplate;
 
     @Autowired
@@ -64,6 +70,7 @@ class DeviceCommandDispatcherIntegrationTest {
         subscriptionState.markAckActive();
         subscriptionState.markStatusActive();
         commandRepository.deleteAll();
+        riskDecisionRepository.deleteAll();
         eventRepository.deleteAll();
     }
 

@@ -76,7 +76,7 @@ Allowed source and command combinations:
 | MANUAL | ROTATE_CAMERA_RIGHT | null | Camera servo 5 degrees right |
 | MANUAL | STOP_DETERRENT | null | Deterrent motor and speaker off |
 
-Animal-specific commands such as DETERRENT_MAGPIE, DETERRENT_BOAR, or DETERRENT_DEER are forbidden. 현재 Backend는 모든 accepted detection을 하나의 aggregate presence로 처리해 SOUND_ALERT → DETERRENT_FULL → STOP_DETERRENT를 선택합니다. classCode별 response policy는 이슈 #5 이후 별도 확장하며 MQTT vocabulary는 Raspberry Pi가 수행할 semantic action만 표현합니다.
+Animal-specific commands such as DETERRENT_MAGPIE, DETERRENT_BOAR, or DETERRENT_DEER are forbidden. Backend response eligibility를 통과한 detection은 하나의 aggregate presence로 처리해 SOUND_ALERT → DETERRENT_FULL → STOP_DETERRENT를 선택합니다. classCode와 confidence는 eligibility에만 사용하며 MQTT vocabulary는 Raspberry Pi가 수행할 semantic action만 표현합니다.
 
 ## ACK payload
 

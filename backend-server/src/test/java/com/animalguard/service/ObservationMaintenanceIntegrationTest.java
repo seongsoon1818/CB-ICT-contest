@@ -35,6 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(properties = {
         "animalguard.actuation.enabled=true",
         "animalguard.actuation.risk-policy-confirmed=true",
+        "animalguard.response-policy.enabled=true",
+        "animalguard.response-policy.allowed-class-codes=MAGPIE",
         "animalguard.device-control.cooldown=10s",
         "animalguard.observation.deterrent-repeat-interval=5s"
 })

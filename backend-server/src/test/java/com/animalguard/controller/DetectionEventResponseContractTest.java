@@ -24,6 +24,7 @@ class DetectionEventResponseContractTest {
                 .isEqualTo("[\"ACTUATION_DISABLED\",\"RISK_POLICY_UNCONFIRMED\","
                         + "\"CAMERA_DEVICE_MAPPING_EMPTY\",\"MQTT_PUBLISHER_NOT_READY\","
                         + "\"CAMERA_UNMAPPED\",\"COOLDOWN_ACTIVE\","
-                        + "\"AUTOMATIC_RETRY_EXHAUSTED\",\"OPERATOR_API_DISABLED\"]");
+                        + "\"AUTOMATIC_RETRY_EXHAUSTED\",\"OPERATOR_API_DISABLED\","
+                        + "\"RESPONSE_POLICY_DISABLED\"]");
     }
 }

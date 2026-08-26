@@ -23,6 +23,7 @@ public class DetectionEventService {
     private final DetectionEventRepository detectionEventRepository;
     private final RiskDecisionRepository riskDecisionRepository;
     private final RiskDecisionEngine riskDecisionEngine;
+    private final ResponseEligibilityService responseEligibilityService;
     private final AnimalObservationService animalObservationService;
 
     @Transactional
@@ -71,7 +72,11 @@ public class DetectionEventService {
                 assessment.reason()
         ));
 
-        boolean animalPresent = !request.detections().isEmpty();
+        ResponseEligibilityService.ResponseEligibility eligibility = responseEligibilityService.evaluate(
+                request.detections(),
+                assessment
+        );
+        boolean animalPresent = eligibility.animalPresent();
         AnimalObservationResult observationResult = animalObservationService.process(
                 event,
                 request.cameraId(),
@@ -81,12 +86,17 @@ public class DetectionEventService {
         CommandDecision commandDecision = observationResult.commandDecision();
 
         log.info(
-                "Observation decision completed: eventId={}, cameraId={}, capturedAt={}, animalPresent={}, "
+                "Observation decision completed: eventId={}, cameraId={}, capturedAt={}, totalDetections={}, "
+                        + "eligibleDetections={}, responsePolicyEnabled={}, minimumRiskLevel={}, animalPresent={}, "
                         + "observationState={}, observationTrigger={}, commandType={}, commandOutcome={}, "
                         + "commandId={}, commandBlockers={}",
                 event.getEventId(),
                 request.cameraId(),
                 request.capturedAt(),
+                eligibility.totalDetections(),
+                eligibility.eligibleDetections(),
+                eligibility.responsePolicyEnabled(),
+                eligibility.minimumRiskLevel(),
                 animalPresent,
                 observationResult.presenceState(),
                 observationResult.trigger(),

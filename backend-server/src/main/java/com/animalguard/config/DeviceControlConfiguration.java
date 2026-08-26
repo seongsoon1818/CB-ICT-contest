@@ -11,7 +11,8 @@ import java.time.Clock;
         DeviceControlProperties.class,
         ActuationProperties.class,
         ReconciliationProperties.class,
-        OperatorApiProperties.class
+        OperatorApiProperties.class,
+        ResponsePolicyProperties.class
 })
 public class DeviceControlConfiguration {
 

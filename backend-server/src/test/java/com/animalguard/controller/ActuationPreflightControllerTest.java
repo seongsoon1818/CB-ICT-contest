@@ -40,6 +40,7 @@ class ActuationPreflightControllerTest {
                 List.of(
                         ActuationBlocker.ACTUATION_DISABLED,
                         ActuationBlocker.RISK_POLICY_UNCONFIRMED,
+                        ActuationBlocker.RESPONSE_POLICY_DISABLED,
                         ActuationBlocker.MQTT_PUBLISHER_NOT_READY
                 )
         ));
@@ -50,7 +51,8 @@ class ActuationPreflightControllerTest {
                 .andExpect(jsonPath("$.ready", is(false)))
                 .andExpect(jsonPath("$.blockers[0]", is("ACTUATION_DISABLED")))
                 .andExpect(jsonPath("$.blockers[1]", is("RISK_POLICY_UNCONFIRMED")))
-                .andExpect(jsonPath("$.blockers[2]", is("MQTT_PUBLISHER_NOT_READY")));
+                .andExpect(jsonPath("$.blockers[2]", is("RESPONSE_POLICY_DISABLED")))
+                .andExpect(jsonPath("$.blockers[3]", is("MQTT_PUBLISHER_NOT_READY")));
     }
 
     @Test
