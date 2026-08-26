@@ -86,6 +86,10 @@ Raspberry Pi OS의 `python3-opencv` 설치 방식을 별도 검토해야 합니�
 
 기존 `FRAME_INTERVAL_SECONDS`가 환경에 남아 있으면 조용히 무시하지 않고
 `FRAME_INTERVAL_SECONDS is deprecated; use CAPTURE_FPS` 시작 오류를 반환합니다.
+배포할 때는 새 애플리케이션을 재시작하기 전에
+`/etc/animalguard/camera-uploader.env`에서 `FRAME_INTERVAL_SECONDS`를 제거하고
+`CAPTURE_FPS`로 교체해야 합니다. 환경 파일을 나중에 변경하면 systemd가 먼저
+실패 재시작과 start limit에 도달할 수 있습니다.
 
 ```bash
 set -a
@@ -117,7 +121,7 @@ export CAPTURE_FPS=30
 | --- | --- | --- |
 | `SUCCESS` (2xx) | 소비 | uploaded 증가 후 최신 frame 확인 |
 | `CLIENT_ERROR` (400, 409, 413, 422 등) | 폐기 | client error 증가 후 최신 frame 확인 |
-| `CONFIGURATION_ERROR` (401, 403) | 폐기 | 전체 서비스 stop과 resource 정리 |
+| `CONFIGURATION_ERROR` (401, 403) | 폐기 | 전체 서비스 stop, resource 정리, non-zero 종료 |
 | `TRANSIENT_ERROR` (timeout, connection, 5xx) | 폐기 | 고정 backoff 후 최신 frame 확인 |
 | capture failure | 생성 안 함 | capture error 증가 후 다음 캡처 주기 계속 |
 
@@ -139,6 +143,11 @@ frame마다 INFO 성공 로그를 남기지 않고 `STATS_INTERVAL_SECONDS`마�
 - `effectiveCaptureFps`
 - `effectiveUploadFps`
 - `latestFrameAgeMs`
+
+`effectiveCaptureFps`와 `effectiveUploadFps`는 프로세스 시작 이후 누적 평균이 아니라
+직전 집계 로그 이후 구간의 처리량입니다. 누적 counter는 초기화하지 않습니다.
+`latestFrameAgeMs`는 마지막 성공 업로드가 아니라 마지막 캡처의 나이이므로, 업로드
+정체는 구간 `effectiveUploadFps`, `uploadTransientErrors`와 함께 판단해야 합니다.
 
 ## 종료
 
@@ -188,5 +197,7 @@ sudo systemctl status animalguard-camera-uploader.service
 ```
 
 unit은 실패 시 5초 뒤 재시작하되 60초 동안 3회로 시작을 제한하고 `SIGTERM`으로
-정상 종료를 요청합니다. 실제 장비에서 사용자와 `/dev/video*`, `/dev/dma_heap/*`
-권한을 확인해야 합니다. 실제 설치나 enable은 이 구현 범위에 포함하지 않습니다.
+정상 종료를 요청합니다. AI Server가 401/403으로 설정을 거부하면 프로세스가
+non-zero로 종료되므로 제한 횟수 재시도 뒤 unit이 failed 상태로 남습니다. 실제
+장비에서 사용자와 `/dev/video*`, `/dev/dma_heap/*` 권한을 확인해야 합니다. 실제
+설치나 enable은 이 구현 범위에 포함하지 않습니다.

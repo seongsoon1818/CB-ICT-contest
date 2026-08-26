@@ -18,7 +18,9 @@ class RuntimeSnapshot:
 class RuntimeStats:
     def __init__(self, started_monotonic: float) -> None:
         self._lock = threading.Lock()
-        self._started_monotonic = started_monotonic
+        self._last_snapshot_monotonic = started_monotonic
+        self._last_snapshot_captured = 0
+        self._last_snapshot_uploaded = 0
         self._captured = 0
         self._uploaded = 0
         self._overwritten = 0
@@ -54,16 +56,18 @@ class RuntimeStats:
 
     def snapshot(self, now_monotonic: float) -> RuntimeSnapshot:
         with self._lock:
-            elapsed = max(0.0, now_monotonic - self._started_monotonic)
-            capture_fps = self._captured / elapsed if elapsed > 0 else 0.0
-            upload_fps = self._uploaded / elapsed if elapsed > 0 else 0.0
+            elapsed = max(0.0, now_monotonic - self._last_snapshot_monotonic)
+            captured_delta = self._captured - self._last_snapshot_captured
+            uploaded_delta = self._uploaded - self._last_snapshot_uploaded
+            capture_fps = captured_delta / elapsed if elapsed > 0 else 0.0
+            upload_fps = uploaded_delta / elapsed if elapsed > 0 else 0.0
             age_ms = None
             if self._latest_capture_monotonic is not None:
                 age_ms = max(
                     0.0,
                     (now_monotonic - self._latest_capture_monotonic) * 1000,
                 )
-            return RuntimeSnapshot(
+            snapshot = RuntimeSnapshot(
                 captured=self._captured,
                 uploaded=self._uploaded,
                 overwritten=self._overwritten,
@@ -74,3 +78,8 @@ class RuntimeStats:
                 effective_upload_fps=upload_fps,
                 latest_frame_age_ms=age_ms,
             )
+            if elapsed > 0:
+                self._last_snapshot_monotonic = now_monotonic
+                self._last_snapshot_captured = self._captured
+                self._last_snapshot_uploaded = self._uploaded
+            return snapshot
