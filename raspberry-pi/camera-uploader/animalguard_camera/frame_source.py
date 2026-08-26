@@ -22,7 +22,12 @@ class FileFrameSource:
 
 
 class Picamera2FrameSource:
-    def __init__(self, width: int = 1280, height: int = 720) -> None:
+    def __init__(
+        self,
+        width: int = 1280,
+        height: int = 720,
+        target_fps: float = 30.0,
+    ) -> None:
         try:
             from picamera2 import Picamera2
         except ImportError as error:
@@ -35,7 +40,10 @@ class Picamera2FrameSource:
         try:
             camera = Picamera2()
             camera.configure(
-                camera.create_still_configuration(main={"size": (width, height)})
+                camera.create_video_configuration(
+                    main={"size": (width, height)},
+                    controls={"FrameRate": target_fps},
+                )
             )
             camera.start()
         except Exception as error:
