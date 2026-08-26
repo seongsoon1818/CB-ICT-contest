@@ -2,6 +2,7 @@ package com.animalguard.config;
 
 import com.animalguard.mqtt.MqttActuationTransportReadiness;
 import com.animalguard.mqtt.MqttCommandTransport;
+import com.animalguard.mqtt.MqttSubscriptionState;
 import com.animalguard.mqtt.PahoMqttCommandTransport;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -20,11 +21,17 @@ public class MqttConfiguration {
     }
 
     @Bean
+    MqttSubscriptionState mqttSubscriptionState() {
+        return new MqttSubscriptionState();
+    }
+
+    @Bean
     @Fallback
     MqttActuationTransportReadiness mqttActuationTransportReadiness(
             MqttProperties properties,
-            MqttCommandTransport transport
+            MqttCommandTransport transport,
+            MqttSubscriptionState subscriptionState
     ) {
-        return new MqttActuationTransportReadiness(properties, transport);
+        return new MqttActuationTransportReadiness(properties, transport, subscriptionState);
     }
 }

@@ -34,6 +34,7 @@ class PahoMqttCommandTransportTest {
     private final IMqttToken connectToken = mock(IMqttToken.class);
     private final IMqttToken disconnectToken = mock(IMqttToken.class);
     private final IMqttDeliveryToken deliveryToken = mock(IMqttDeliveryToken.class);
+    private final IMqttToken subscribeToken = mock(IMqttToken.class);
     private final MqttProperties properties = properties(true);
 
     private PahoMqttCommandTransport transport;
@@ -44,6 +45,7 @@ class PahoMqttCommandTransportTest {
         when(client.disconnect()).thenReturn(disconnectToken);
         when(client.publish(anyString(), any(byte[].class), anyInt(), anyBoolean()))
                 .thenReturn(deliveryToken);
+        when(client.subscribe(anyString(), anyInt())).thenReturn(subscribeToken);
         transport = new PahoMqttCommandTransport(properties, client);
     }
 
@@ -89,6 +91,24 @@ class PahoMqttCommandTransportTest {
         assertThatThrownBy(() -> transport.publish("topic", new byte[]{1}, 1, false))
                 .isInstanceOf(MqttTransportException.class)
                 .hasMessageContaining("publish");
+    }
+
+    @Test
+    void subscribesWithCallerFilterQosAndBoundedWait() throws Exception {
+        transport.subscribe("animalguard/devices/+/acks", 1);
+
+        verify(client).subscribe("animalguard/devices/+/acks", 1);
+        verify(subscribeToken).waitForCompletion(5_000L);
+    }
+
+    @Test
+    void classifiesPahoSubscribeFailureAsTransportFailure() throws Exception {
+        when(client.subscribe(anyString(), anyInt()))
+                .thenThrow(new MqttException(MqttException.REASON_CODE_CLIENT_NOT_CONNECTED));
+
+        assertThatThrownBy(() -> transport.subscribe("animalguard/devices/+/acks", 1))
+                .isInstanceOf(MqttTransportException.class)
+                .hasMessageContaining("subscribe");
     }
 
     @Test

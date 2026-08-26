@@ -80,6 +80,17 @@ public final class PahoMqttCommandTransport implements MqttCommandTransport {
     }
 
     @Override
+    public void subscribe(String topicFilter, int qos) {
+        Objects.requireNonNull(topicFilter, "topicFilter must not be null");
+        try {
+            IMqttToken token = client.subscribe(topicFilter, qos);
+            token.waitForCompletion(timeoutMillis(properties.connectTimeout()));
+        } catch (MqttException exception) {
+            throw new MqttTransportException("MQTT subscribe failed: " + safeReason(exception), exception);
+        }
+    }
+
+    @Override
     public void setCallback(Callback callback) {
         this.callback = Objects.requireNonNull(callback, "callback must not be null");
     }

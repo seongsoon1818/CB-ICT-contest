@@ -9,17 +9,25 @@ public final class MqttActuationTransportReadiness implements ActuationTransport
 
     private final MqttProperties properties;
     private final MqttCommandTransport transport;
+    private final MqttSubscriptionState subscriptionState;
 
     public MqttActuationTransportReadiness(
             MqttProperties properties,
-            MqttCommandTransport transport
+            MqttCommandTransport transport,
+            MqttSubscriptionState subscriptionState
     ) {
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
         this.transport = Objects.requireNonNull(transport, "transport must not be null");
+        this.subscriptionState = Objects.requireNonNull(
+                subscriptionState,
+                "subscriptionState must not be null"
+        );
     }
 
     @Override
     public boolean isReady() {
-        return properties.enabled() && transport.isConnected();
+        return properties.enabled()
+                && transport.isConnected()
+                && subscriptionState.areRequiredSubscriptionsActive();
     }
 }
