@@ -491,3 +491,75 @@ def test_unexpected_upload_error_escapes_after_resources_are_closed() -> None:
 
     assert source.closed
     assert uploader.closed
+
+
+def test_service_does_not_close_resources_owned_by_live_workers() -> None:
+    stop_event = threading.Event()
+    release_workers = threading.Event()
+    source_blocked = threading.Event()
+    upload_started = threading.Event()
+    source_released = threading.Event()
+    upload_released = threading.Event()
+
+    class BlockingSource(SequenceSource):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.capture_count = 0
+            self.worker_was_daemon = False
+
+        def capture_jpeg(self) -> bytes:
+            self.capture_count += 1
+            self.worker_was_daemon = threading.current_thread().daemon
+            if self.capture_count == 1:
+                return b"frame"
+            source_blocked.set()
+            assert release_workers.wait(timeout=5)
+            source_released.set()
+            return b"late-frame"
+
+    class BlockingUploader(ResultUploader):
+        def __init__(self) -> None:
+            super().__init__(UploadResult.SUCCESS)
+            self.worker_was_daemon = False
+
+        def upload(self, frame: bytes, captured_at: datetime) -> UploadResult:
+            self.worker_was_daemon = threading.current_thread().daemon
+            upload_started.set()
+            assert release_workers.wait(timeout=5)
+            upload_released.set()
+            return UploadResult.SUCCESS
+
+    source = BlockingSource()
+    uploader = BlockingUploader()
+
+    def request_stop_when_workers_are_blocked() -> None:
+        assert source_blocked.wait(timeout=1)
+        assert upload_started.wait(timeout=1)
+        stop_event.set()
+
+    stopper = threading.Thread(target=request_stop_when_workers_are_blocked)
+    stopper.start()
+    try:
+        with pytest.raises(RuntimeError, match="did not stop in time"):
+            run_service(
+                Settings(
+                    "http://ai.example",
+                    "cam-001",
+                    capture_fps=30,
+                    http_timeout_seconds=0.01,
+                    upload_transient_backoff_seconds=0.0,
+                ),
+                source=source,
+                uploader=uploader,  # type: ignore[arg-type]
+                stop_event=stop_event,
+            )
+
+        assert source.worker_was_daemon
+        assert uploader.worker_was_daemon
+        assert not source.closed
+        assert not uploader.closed
+    finally:
+        release_workers.set()
+        assert source_released.wait(timeout=1)
+        assert upload_released.wait(timeout=1)
+        stopper.join(timeout=1)

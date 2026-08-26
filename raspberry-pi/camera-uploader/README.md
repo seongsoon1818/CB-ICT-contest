@@ -154,7 +154,9 @@ frame마다 INFO 성공 로그를 남기지 않고 `STATS_INTERVAL_SECONDS`마�
 `SIGINT` 또는 `SIGTERM`을 받으면 stop event를 설정하고 slot waiter를 깨운 뒤 producer와
 worker를 join합니다. 진행 중인 HTTP 요청은 설정된 timeout 안에서 끝나며, thread가
 끝난 다음 HTTP client와 camera source를 닫습니다. 종료 요청 뒤 새 upload는 시작하지
-않습니다.
+않습니다. 제한 시간이 지나도 worker가 살아 있으면 해당 worker가 소유한 HTTP client
+또는 camera source를 동시에 닫지 않고 non-zero로 종료합니다. 두 worker는 이 실패
+경로에서 프로세스 종료를 막지 않도록 daemon으로 생성됩니다.
 
 ## 다음 동물 관찰 State Machine에 미치는 영향
 

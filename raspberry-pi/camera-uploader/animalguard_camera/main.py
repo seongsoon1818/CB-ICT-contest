@@ -187,6 +187,7 @@ def run_service(
     producer = threading.Thread(
         name="camera-capture-producer",
         target=run_guarded,
+        daemon=True,
         args=(
             lambda: run_capture_producer(
                 configured_source,
@@ -200,6 +201,7 @@ def run_service(
     worker = threading.Thread(
         name="camera-upload-worker",
         target=run_guarded,
+        daemon=True,
         args=(
             lambda: run_upload_worker(
                 slot,
@@ -225,12 +227,16 @@ def run_service(
         )
         producer.join(timeout=join_timeout)
         worker.join(timeout=join_timeout)
-        if producer.is_alive() or worker.is_alive():
+        producer_alive = producer.is_alive()
+        worker_alive = worker.is_alive()
+        if producer_alive or worker_alive:
             errors.append(RuntimeError("camera uploader worker did not stop in time"))
         try:
-            configured_uploader.close()
+            if not worker_alive:
+                configured_uploader.close()
         finally:
-            configured_source.close()
+            if not producer_alive:
+                configured_source.close()
         log_runtime_snapshot(stats.snapshot(monotonic()))
 
     _raise_recorded_errors(errors)
