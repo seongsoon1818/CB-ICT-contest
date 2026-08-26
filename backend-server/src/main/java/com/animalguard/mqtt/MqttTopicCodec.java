@@ -10,12 +10,23 @@ import java.util.Objects;
 public final class MqttTopicCodec {
 
     private static final char[] HEX = "0123456789ABCDEF".toCharArray();
+    private static final String DEVICE_TOPIC_PREFIX = "animalguard/devices/";
+    public static final String ACK_TOPIC_FILTER = DEVICE_TOPIC_PREFIX + "+/acks";
+    public static final String STATUS_TOPIC_FILTER = DEVICE_TOPIC_PREFIX + "+/status";
 
     private MqttTopicCodec() {
     }
 
     public static String commandTopic(String deviceId) {
-        return "animalguard/devices/" + encodeSegment(deviceId) + "/commands";
+        return DEVICE_TOPIC_PREFIX + encodeSegment(deviceId) + "/commands";
+    }
+
+    public static String deviceIdFromAckTopic(String topic) {
+        return deviceIdFromTopic(topic, "acks");
+    }
+
+    public static String deviceIdFromStatusTopic(String topic) {
+        return deviceIdFromTopic(topic, "status");
     }
 
     public static String encodeSegment(String value) {
@@ -77,6 +88,27 @@ public final class MqttTopicCodec {
                 || value == '.'
                 || value == '_'
                 || value == '~';
+    }
+
+    private static String deviceIdFromTopic(String topic, String suffix) {
+        requireValue(topic);
+        String ending = "/" + suffix;
+        if (!topic.startsWith(DEVICE_TOPIC_PREFIX) || !topic.endsWith(ending)) {
+            throw new MqttInboundContractException("unexpected MQTT topic");
+        }
+        String segment = topic.substring(DEVICE_TOPIC_PREFIX.length(), topic.length() - ending.length());
+        if (segment.isEmpty() || segment.indexOf('/') >= 0) {
+            throw new MqttInboundContractException("MQTT topic must contain exactly one deviceId segment");
+        }
+        try {
+            String deviceId = decodeSegment(segment);
+            if (deviceId.isBlank()) {
+                throw new MqttInboundContractException("MQTT topic deviceId must not be blank");
+            }
+            return deviceId;
+        } catch (IllegalArgumentException exception) {
+            throw new MqttInboundContractException("MQTT topic deviceId encoding is invalid", exception);
+        }
     }
 
     private static void requireValue(String value) {

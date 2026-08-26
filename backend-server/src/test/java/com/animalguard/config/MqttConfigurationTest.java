@@ -2,6 +2,7 @@ package com.animalguard.config;
 
 import com.animalguard.mqtt.MqttActuationTransportReadiness;
 import com.animalguard.mqtt.MqttCommandTransport;
+import com.animalguard.mqtt.MqttSubscriptionState;
 import com.animalguard.service.ActuationTransportReadiness;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -29,6 +30,7 @@ class MqttConfigurationTest {
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context).hasSingleBean(MqttCommandTransport.class);
+                    assertThat(context).hasSingleBean(MqttSubscriptionState.class);
                     assertThat(context).hasSingleBean(MqttActuationTransportReadiness.class);
                     assertThat(context.getBean(ActuationTransportReadiness.class).isReady()).isFalse();
                 });

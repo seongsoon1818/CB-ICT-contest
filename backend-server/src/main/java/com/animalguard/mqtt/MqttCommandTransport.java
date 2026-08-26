@@ -10,6 +10,8 @@ public interface MqttCommandTransport extends AutoCloseable {
 
     void publish(String topic, byte[] payload, int qos, boolean retained);
 
+    void subscribe(String topicFilter, int qos);
+
     void setCallback(Callback callback);
 
     @Override

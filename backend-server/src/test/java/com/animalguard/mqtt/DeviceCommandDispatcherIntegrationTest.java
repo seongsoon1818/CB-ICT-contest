@@ -52,9 +52,15 @@ class DeviceCommandDispatcherIntegrationTest {
     @Autowired
     private ObservingTransport transport;
 
+    @Autowired
+    private MqttSubscriptionState subscriptionState;
+
     @BeforeEach
     void cleanDatabase() {
         transport.reset();
+        subscriptionState.reset();
+        subscriptionState.markAckActive();
+        subscriptionState.markStatusActive();
         commandRepository.deleteAll();
         eventRepository.deleteAll();
     }
@@ -173,6 +179,10 @@ class DeviceCommandDispatcherIntegrationTest {
             if (failPublish) {
                 throw new MqttTransportException("simulated immediate failure");
             }
+        }
+
+        @Override
+        public void subscribe(String topicFilter, int qos) {
         }
 
         @Override

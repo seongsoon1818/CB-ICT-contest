@@ -150,6 +150,10 @@ For the MVP Publisher, `PUBLISHED` means dispatch was authorized and the publish
 - ACK, status, and sensor-event timestamps include timezones; Backend stores server receipt times for audit.
 - Authentication, authorization, TLS, and broker ACL configuration are deployment concerns and are not implemented in Phase 0.
 
-STOP_DETERRENT is a safety-stop command. Automatic STOP creation bypasses ACTUATION_DISABLED, RISK_POLICY_UNCONFIRMED, and COOLDOWN_ACTIVE, while device target mapping, MQTT transport readiness, commandId, and expiry remain required. The public actuation preflight endpoint still describes general actuation-start readiness. The follow-up Publisher must preserve this reduced STOP gate when it rechecks dispatch safety.
+STOP_DETERRENT is a safety-stop command. Automatic STOP creation bypasses ACTUATION_DISABLED, RISK_POLICY_UNCONFIRMED, and COOLDOWN_ACTIVE, while device target mapping, MQTT transport readiness, commandId, and expiry remain required. The public actuation preflight endpoint still describes general actuation-start readiness. The Backend Publisher preserves this reduced STOP gate when it rechecks dispatch safety.
+
+Backend transport readiness requires an enabled MQTT client, an active broker connection, and successful ACK and status subscriptions. It resets both subscription markers on connection loss and re-subscribes after reconnect. A connection without both SUBACK results is not actuation-ready.
+
+Backend strictly rejects ACK and status payloads with unknown fields, a wrong ACK timestamp field, a timezone-less reported timestamp, or a topic/payload/DB deviceId mismatch. It records device-reported time separately from Backend receipt time. Existing duplicate `device_statuses.device_id` rows are preserved; a new report updates the latest row by Backend `received_at` then id, or creates a row when none exists.
 
 Observation command markers mean only that a DeviceCommand row was created. They do not prove PUBLISHED, ACKNOWLEDGED, EXECUTED, GPIO activation, or GPIO stop. Reconciliation after FAILED or EXPIRED and the no-event case where no empty Detection Event arrives are follow-up safety responsibilities; the current Backend does not add a scheduler.
