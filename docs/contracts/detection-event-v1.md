@@ -111,17 +111,17 @@ Detection Event v1은 현재 producer가 없으므로 직접 일반화했습니�
 }
 ~~~
 
-`commandOutcome`과 `commandBlockers`는 모든 정상 응답에 포함됩니다. 현재 Backend에는 동물 관찰 state machine과 automatic response policy가 없으므로 위험도와 관계없이 Detection Event와 RiskDecision까지만 저장하며, 이 endpoint는 항상 `NOT_REQUESTED`와 빈 `commandBlockers`를 반환합니다. HIGH만 보고 `SOUND_ALERT` 또는 `DETERRENT_FULL`을 임의로 선택하지 않습니다.
+`commandOutcome`과 `commandBlockers`는 모든 정상 응답에 포함됩니다. Backend는 모든 accepted detection을 하나의 camera별 aggregate animal presence로 취급하고 frame sequence가 아니라 `capturedAt`으로 첫 감지, persistence, absence grace와 continuity를 계산합니다. 첫 감지는 `SOUND_ALERT`, persistence threshold는 `DETERRENT_FULL`, full deterrent가 CREATED였던 session의 disappearance는 `STOP_DETERRENT`를 요청합니다. risk level이나 classCode로 command type을 선택하지 않습니다.
 
-`CREATED`와 `SUPPRESSED`는 향후 명시적인 automatic response policy가 `DeviceCommandCreationService`에 semantic command type과 reason을 전달할 때 사용할 예약 응답 형태입니다. 현재 endpoint가 생성하는 값은 아닙니다.
+stale event는 event와 RiskDecision을 저장한 뒤 observation 변경 없이 `NOT_REQUESTED`입니다. command intent가 안전 gate나 cooldown에 막히면 `SUPPRESSED`이고 marker를 저장하지 않습니다. `CREATED` marker는 DeviceCommand DB row 생성만 뜻하며 publish, ACK 또는 물리 실행을 뜻하지 않습니다.
 
 | commandOutcome | 의미 | commandId | commandBlockers |
 | --- | --- | --- | --- |
-| `NOT_REQUESTED` | 현재 policy가 command type을 선택하지 않음 | 생략 | 빈 배열 |
-| `CREATED` | 향후 policy가 요청한 DeviceCommand가 DB에 생성됨 | 포함 | 빈 배열 |
-| `SUPPRESSED` | 향후 policy의 요청이 운영 조건으로 억제됨 | 생략 | 비어 있지 않은 배열 |
+| `NOT_REQUESTED` | 이번 event에서 command intent 없음 | 생략 | 빈 배열 |
+| `CREATED` | policy가 요청한 DeviceCommand가 DB에 생성됨 | 포함 | 빈 배열 |
+| `SUPPRESSED` | policy의 요청이 운영 조건으로 억제됨 | 생략 | 비어 있지 않은 배열 |
 
-향후 `SUPPRESSED` blocker는 `ACTUATION_DISABLED`, `RISK_POLICY_UNCONFIRMED`, `CAMERA_DEVICE_MAPPING_EMPTY`, `MQTT_PUBLISHER_NOT_READY`, `CAMERA_UNMAPPED`, `COOLDOWN_ACTIVE`입니다. Global preflight blocker가 여러 개면 고정된 순서로 모두 포함합니다. DeviceCommand가 생성되면 기존 호환 필드인 `commandId`가 포함됩니다. 명령이 생성되지 않으면 `commandId` 필드는 null이 아니라 응답에서 생략됩니다. suppression 판정은 응답과 Backend 구조화 로그에만 노출하며 DB에는 저장하지 않습니다.
+`SUPPRESSED` blocker는 `ACTUATION_DISABLED`, `RISK_POLICY_UNCONFIRMED`, `CAMERA_DEVICE_MAPPING_EMPTY`, `MQTT_PUBLISHER_NOT_READY`, `CAMERA_UNMAPPED`, `COOLDOWN_ACTIVE`입니다. STOP safety-stop은 앞의 두 blocker와 cooldown을 우회하지만 mapping과 transport readiness는 요구합니다. DeviceCommand가 생성되면 기존 호환 필드인 `commandId`가 포함됩니다. 명령이 생성되지 않으면 `commandId`는 응답에서 생략됩니다. suppression 판정은 응답과 구조화 로그에만 노출하며 DB에는 저장하지 않습니다.
 
 ## Error contract
 

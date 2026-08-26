@@ -1,6 +1,6 @@
 # Backend Server
 
-AnimalGuard의 Java 17·Spring Boot 3 Backend 서버입니다. Detection Event v1을 검증해 PostgreSQL에 저장하고 설정 기반 Risk Engine으로 RiskDecision을 생성합니다. 현재 automatic response policy가 없으므로 위험도만 보고 DeviceCommand type을 임의로 선택하지 않습니다.
+AnimalGuard의 Java 17·Spring Boot 3 Backend 서버입니다. Detection Event v1과 RiskDecision을 저장하고 camera별 aggregate animal observation으로 automatic semantic command를 선택합니다. classCode별 response policy는 이슈 #5 이후 범위이며 현재 risk level로 command type을 임의 선택하지 않습니다.
 
 ## API
 
@@ -12,11 +12,38 @@ POST /api/v1/detection/events
 
 정상 응답은 기존 `eventId`, `riskScore`, `riskLevel`, 선택적 `commandId`를 유지하면서 `commandOutcome`과 `commandBlockers`를 항상 포함합니다.
 
-- `NOT_REQUESTED`: 현재 모든 위험도에서 policy가 command type을 선택하지 않았으며 blocker가 없습니다.
-- `CREATED`: 향후 명시적인 policy가 요청한 DeviceCommand가 저장됐고 기존 `commandId`가 포함됩니다.
-- `SUPPRESSED`: 향후 policy의 요청이 안전 gate 또는 운영 조건으로 억제됐으며 하나 이상의 blocker가 포함됩니다.
+- `NOT_REQUESTED`: 이번 event에서 상태만 갱신했거나 stale event를 무시해 command intent가 없습니다.
+- `CREATED`: 관찰 policy가 요청한 DeviceCommand row가 `CREATED`로 저장됐고 `commandId`가 포함됩니다.
+- `SUPPRESSED`: 관찰 policy의 command intent가 안전 gate 또는 운영 조건으로 억제됐으며 하나 이상의 blocker가 포함됩니다.
 
 현재 suppression 판정은 Detection Event API 응답과 event당 한 건의 Backend 명령 판정 로그로만 진단합니다. DB에는 별도 저장하지 않으므로 durable audit이 필요하면 별도 schema와 migration을 설계해야 합니다. DB 저장 실패나 잘못된 Entity 불변식 같은 시스템 오류는 `SUPPRESSED`로 변환하지 않습니다.
+
+## 동물 관찰 설정과 State Machine
+
+```yaml
+animalguard:
+  observation:
+    persistence-threshold: ${ANIMAL_PERSISTENCE_THRESHOLD:5s}
+    absence-grace: ${ANIMAL_ABSENCE_GRACE:2s}
+    continuity-timeout: ${ANIMAL_CONTINUITY_TIMEOUT:3s}
+    sound-alert-duration: ${SOUND_ALERT_DURATION:2s}
+    deterrent-full-duration: ${DETERRENT_FULL_DURATION:5s}
+```
+
+기본값은 MVP 검증용이며 운영값이 아닙니다. 모든 값은 양수이고 continuity timeout은 absence grace 이상이어야 하며 두 command duration은 양수 int 밀리초로 변환 가능해야 합니다. `detections`가 하나 이상이면 classCode와 개체 수에 관계없이 하나의 aggregate presence입니다. sequence와 frame 수는 사용하지 않고 event의 `capturedAt`만으로 지속·grace·continuity를 계산합니다.
+
+```text
+IDLE
+  │ positive
+  ▼
+PRESENT
+  ├─ first detection       → SOUND_ALERT
+  ├─ persistence threshold → DETERRENT_FULL
+  ├─ brief absence         → grace 유지
+  └─ disappearance         → STOP_DETERRENT 또는 IDLE
+```
+
+`capturedAt <= lastProcessedCapturedAt`인 stale event도 DetectionEvent와 RiskDecision은 저장하지만 observation과 command를 변경하지 않습니다. full deterrent 전 event gap이 continuity timeout을 초과하면 새 session으로 시작하고, full deterrent marker가 있으면 gap만으로 장치 상태나 동물 사라짐을 추측하지 않습니다. 새 Detection Event가 오지 않으면 전이를 평가하지 않으므로 카메라·AI·네트워크가 완전히 멈춘 경우 Backend가 STOP을 새로 생성할 scheduler는 없습니다.
 
 ## 위험도 설정
 
@@ -37,19 +64,19 @@ animalguard:
 
 cooldown과 command TTL은 모두 양수여야 하고 command TTL은 cooldown보다 길 수 없습니다. `DEVICE_COMMAND_TTL`의 기본값은 `10s`입니다. 이 관계는 아직 유효한 두 command가 같은 장치에서 겹치는 설정을 막습니다. command TTL은 Raspberry Pi가 새 command를 실행할 수 있는 payload 유효 기간입니다. `durationMs`는 `SOUND_ALERT`와 `DETERRENT_FULL`의 작동 시간이며, 회전과 `STOP_DETERRENT`에서는 null이므로 TTL과 다른 값입니다. cameraId는 Detection Event와 같은 식별자 형식을 사용하고 deviceId는 비어 있을 수 없습니다. 여러 cameraId가 같은 deviceId를 가리키는 설정은 허용합니다. cameraId에 점이 포함된 key를 명시적으로 보존하려면 YAML에서 `"[cam.001]": pi-001`처럼 대괄호를 포함한 key 전체를 따옴표로 묶습니다. 운영 기본 설정에는 실제 장치 매핑을 넣지 않고 빈 map을 사용하며, `local` 프로필에만 `cam-001: pi-001` 예시가 있습니다.
 
-`DeviceCommandCreationService`는 향후 자동 response policy가 실제 Detection Event, cameraId, `DeviceCommandType`, reason을 명시적으로 전달할 때만 호출합니다. risk level만 보고 command를 추측하지 않으며, 현재 `DetectionEventService`는 관찰 state machine과 policy가 없으므로 HIGH를 포함한 모든 이벤트에서 RiskDecision까지만 저장하고 command는 `NOT_REQUESTED`로 둡니다.
+`AnimalObservationService`가 실제 Detection Event, cameraId, semantic type, duration과 reason을 `DeviceCommandCreationService`에 전달합니다. persistence가 충족되면 미생성 SOUND_ALERT보다 DETERRENT_FULL을 우선합니다. command가 SUPPRESSED되면 session timestamp는 저장하되 marker는 저장하지 않아 다음 event에서 재평가합니다.
 
-명시적인 자동 command 요청이 들어오면 매핑된 deviceId의 최신 현재-contract `device_commands` 기록으로 상태를 계산합니다.
+명시적인 자동 command 요청이 들어오면 같은 device의 최신 `AUTOMATIC` command만 조회합니다.
 
-- 최신 command가 없으면 `IDLE`입니다.
-- `latest.createdAt + cooldown > now`이면 `COOLDOWN`입니다.
-- `latest.createdAt + cooldown <= now`이면 다시 `IDLE`입니다.
+- 최신 automatic command가 없거나 requested type과 다르면 semantic transition을 허용합니다.
+- 같은 type이고 `latest.createdAt + cooldown > now`이면 `COOLDOWN_ACTIVE`입니다.
+- `STOP_DETERRENT`는 cooldown을 우회하고 최근 MANUAL command는 automatic cooldown에 영향을 주지 않습니다.
 
 `IDLE`에서는 `AUTOMATIC`/`CREATED` command를 저장하고 응답에 `commandId`를 포함합니다. 새 command는 호출자가 선택한 semantic type과 원본 `reason`, 서버 Clock의 `issuedAt`, `issuedAt + commandTtl`인 `expiresAt`을 저장하며 DB record 생성 시각 `createdAt`은 현재 MVP에서 `issuedAt`과 같습니다. reason이 500자를 넘으면 truncate하지 않고 생성을 거절합니다. `COOLDOWN`에서는 `SUPPRESSED/COOLDOWN_ACTIVE`, 매핑되지 않은 cameraId에서는 `SUPPRESSED/CAMERA_UNMAPPED`를 반환하고 DeviceCommand를 만들지 않습니다. cameraId를 deviceId로 fallback하지 않습니다.
 
-별도 상태 테이블이나 scheduler는 없습니다. `device_commands.created_at`이 source of truth이므로 애플리케이션 재시작 후에도 다음 이벤트에서 cooldown을 다시 계산합니다. cooldown은 카메라의 `capturedAt`이 아니라 Backend가 실제 command를 생성한 서버 시각을 기준으로 하며, 지연되거나 순서가 뒤바뀐 Detection Event가 장치 명령 간격을 왜곡하지 않도록 합니다.
+`animal_observation_states`는 camera별 IDLE/PRESENT와 session timestamp, CREATED command marker를 저장합니다. marker는 실제 publish, ACK 또는 GPIO 실행을 뜻하지 않습니다. ACK에서 FAILED/EXPIRED가 된 뒤 marker를 재설정하는 reconciliation은 아직 없습니다. cooldown의 source of truth는 `device_commands.created_at`이며 observation duration과 달리 Backend Clock 기준입니다.
 
-현재 command gate는 단일 Backend 인스턴스에서 모든 mapped device의 자동 command 판단을 하나의 전역 gate로 transaction 완료까지 직렬화합니다. 따라서 선행 transaction이 완료되기 전에는 다른 device의 command 판단도 대기합니다. 다중 인스턴스 배포 전에는 DB 기반 원자적 gate 또는 분산 lock 검토가 필요합니다.
+현재 observation gate와 command gate는 단일 Backend 인스턴스에서 전역 fair lock을 transaction 완료까지 유지하며 항상 observation → command 순서로 획득합니다. 따라서 다른 camera/device 판단도 선행 transaction 완료까지 대기합니다. `@Version`은 lost update를 감지하지만 다중 Backend 인스턴스의 완전한 원자성이나 자동 optimistic-lock retry는 제공하지 않습니다.
 
 ## 실제 장치 작동 preflight
 
@@ -92,7 +119,7 @@ blocked 상태도 진단 요청 자체는 성공했으므로 `200 OK`입니다.
 | `CAMERA_UNMAPPED` | 요청 cameraId가 mapping에 없음 | 억제 | 배포 설정 |
 | `COOLDOWN_ACTIVE` | 최신 command의 cooldown이 끝나지 않음 | 억제 | 시간 경과 |
 
-Preflight는 앞의 네 global blocker를 표 순서대로 모두 수집합니다. 명시적인 자동 command 요청은 lock을 잡기 전에 global preflight를 평가하고, ready일 때만 특정 camera mapping과 cooldown을 차례로 확인합니다. 현재 Detection Event 수신 경로는 자동 policy가 없어 command 생성 서비스를 호출하지 않으므로 risk level과 무관하게 `NOT_REQUESTED`입니다. 이 endpoint는 Backend 전체 health나 AI 모델 readiness를 대신하지 않습니다. 안전 정지인 `STOP_DETERRENT`의 최종 blocker 우회 정책은 Publisher/manual API 후속 작업에서 확정하며, 이번 단계에서는 기존 preflight를 우회하지 않습니다.
+Preflight endpoint는 앞의 네 global blocker를 표 순서대로 모두 수집하는 일반 actuation 시작 readiness 의미를 유지합니다. SOUND_ALERT와 DETERRENT_FULL은 이 global gate를 사용합니다. safety-stop인 STOP_DETERRENT는 `ACTUATION_DISABLED`, `RISK_POLICY_UNCONFIRMED`, `COOLDOWN_ACTIVE`를 우회하지만 `CAMERA_DEVICE_MAPPING_EMPTY`, `MQTT_PUBLISHER_NOT_READY`, 특정 `CAMERA_UNMAPPED`는 여전히 적용합니다. 이 endpoint는 Backend 전체 health나 AI 모델 readiness를 대신하지 않습니다.
 
 ## 로컬 실행
 
@@ -112,7 +139,7 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 
 ## 데이터베이스 schema 관리
 
-`src/main/resources/db/migration`의 Flyway migration이 schema 변경의 source of truth입니다. `V1__baseline_animalguard_schema.sql`은 도입 시점의 AnimalGuard JPA Entity 다섯 테이블을 만들고, `V2__prepare_device_command_mqtt_delivery.sql`은 DeviceCommand 전달 column과 `(device_id, created_at)` index를 추가합니다. `V3__align_device_command_contract.sql`은 command source를 backfill하고 manual command를 위한 nullable event/duration schema를 준비합니다. Flyway는 모든 프로필에서 활성화되고 `baseline-on-migrate=false`, `clean-disabled=true`가 기본값이므로 migration 이력이 없는 non-empty schema를 정상 schema로 조용히 간주하지 않으며 migration 실패 시 애플리케이션 시작도 실패합니다.
+`src/main/resources/db/migration`의 Flyway migration이 schema 변경의 source of truth입니다. V1은 baseline, V2는 DeviceCommand 전달 lifecycle, V3는 source/manual 계약, V4는 unique cameraId와 optimistic-lock version을 가진 `animal_observation_states`를 추가합니다. nullable command marker는 command 실행 lifecycle과 observation lifecycle을 불필요하게 결합하지 않도록 FK를 두지 않습니다. Flyway는 모든 프로필에서 활성화되고 `baseline-on-migrate=false`, `clean-disabled=true`가 기본값입니다.
 
 V2 이전의 command에는 MQTT payload field와 실제 publish 이력이 없습니다. V2는 이 row를 삭제하거나 publish 가능한 `CREATED`로 남기지 않고 `status=EXPIRED`, `reason=LEGACY_PRE_MQTT_COMMAND`, `issued_at=expires_at=expired_at=created_at`으로 backfill한 뒤 required column을 `NOT NULL`로 전환합니다. 이 equality는 새 command 생성자의 `expiresAt > issuedAt` 규칙을 만족하는 정상 command를 합성하려는 것이 아니라, publish할 수 없는 legacy row를 migration 전용 terminal tombstone으로 보존한다는 뜻입니다. 장치 보고 시각은 알 수 없으므로 네 `*_reported_at` column은 `NULL`, optimistic-lock `version`은 `0`으로 시작합니다.
 
@@ -152,4 +179,4 @@ ACK Subscriber는 ACK의 의미에 따라 transition method를 호출합니다. 
 
 현재 production code에서 `DeviceCommandCreationService`가 preflight를 통과한 `CREATED`를 만들고 V2 migration이 legacy row를 `EXPIRED`로 전환합니다. `markPublished`, `markAcknowledged`, `markExecuted`, `markFailed`, `markExpired`는 현재 domain test로만 검증되며 실제 호출자는 다음 Publisher/ACK Subscriber PR에서 추가합니다.
 
-다음 Publisher PR은 이 기능 도입 전에 존재하는 `CREATED` command를 조회할지, 만료 처리할지, 어떤 범위부터 dispatch할지 명시적으로 결정해야 합니다. 이번 단계에서는 그 처리 정책, `PUBLISHED` reconciliation, 오래된 `ACKNOWLEDGED` reconciliation, outbox/inbox, publish retry, 다중 Backend 인스턴스, broker 인증/TLS와 장애 복구를 해결하지 않습니다. 실제 MQTT Publisher/Subscriber, GPIO 실행 코드, AI 모델과 위험 점수 정책도 구현하지 않습니다.
+다음 Publisher PR은 이 기능 도입 전에 존재하는 `CREATED` command 처리, dispatch 직전 expiresAt 재검사, `markPublished`, STOP safety dispatch, ACK transition, PUBLISHED crash window를 명시적으로 결정해야 합니다. FAILED/EXPIRED command의 observation marker reconciliation도 후속 책임입니다. 이번 단계에서는 outbox/inbox, publish retry, 다중 Backend 인스턴스, broker 인증/TLS와 장애 복구를 해결하지 않습니다. 실제 MQTT Publisher/Subscriber, GPIO 실행 코드, AI 모델과 classCode별 위험 정책도 구현하지 않습니다.
