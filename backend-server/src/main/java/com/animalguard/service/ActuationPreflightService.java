@@ -2,6 +2,7 @@ package com.animalguard.service;
 
 import com.animalguard.config.ActuationProperties;
 import com.animalguard.config.DeviceControlProperties;
+import com.animalguard.config.ResponsePolicyProperties;
 import com.animalguard.domain.ActuationBlocker;
 import com.animalguard.domain.DeviceCommandType;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import java.util.List;
 public class ActuationPreflightService {
 
     private final ActuationProperties actuationProperties;
+    private final ResponsePolicyProperties responsePolicyProperties;
     private final DeviceControlProperties deviceControlProperties;
     private final ActuationTransportReadiness transportReadiness;
 
@@ -55,6 +57,9 @@ public class ActuationPreflightService {
         }
         if (!actuationProperties.riskPolicyConfirmed()) {
             blockers.add(ActuationBlocker.RISK_POLICY_UNCONFIRMED);
+        }
+        if (!responsePolicyProperties.enabled()) {
+            blockers.add(ActuationBlocker.RESPONSE_POLICY_DISABLED);
         }
         addMappingAndTransportBlockers(blockers);
         return blockers;

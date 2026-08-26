@@ -62,6 +62,12 @@ animalguard:
   operator-api:
     enabled: ${OPERATOR_API_ENABLED:false}
     token: ${OPERATOR_API_TOKEN:}
+  response-policy:
+    enabled: ${RESPONSE_POLICY_ENABLED:false}
+    allowed-class-codes: ${RESPONSE_ALLOWED_CLASS_CODES:}
+    minimum-detection-confidence: ${RESPONSE_MIN_DETECTION_CONFIDENCE:0.0}
+    minimum-classification-confidence: ${RESPONSE_MIN_CLASSIFICATION_CONFIDENCE:}
+    minimum-risk-level: ${RESPONSE_MIN_RISK_LEVEL:}
   device-control:
     cooldown: ${DEVICE_COMMAND_COOLDOWN:20s}
     command-ttl: ${DEVICE_COMMAND_TTL:10s}

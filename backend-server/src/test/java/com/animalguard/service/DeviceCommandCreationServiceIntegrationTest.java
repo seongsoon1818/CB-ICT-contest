@@ -40,7 +40,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = {
         "animalguard.actuation.enabled=true",
-        "animalguard.actuation.risk-policy-confirmed=true"
+        "animalguard.actuation.risk-policy-confirmed=true",
+        "animalguard.response-policy.enabled=true",
+        "animalguard.response-policy.allowed-class-codes=MAGPIE"
 })
 @ActiveProfiles("test")
 @Import(DeviceCommandCreationServiceIntegrationTest.TestBeans.class)

@@ -3,6 +3,7 @@ package com.animalguard.service;
 import com.animalguard.config.ActuationProperties;
 import com.animalguard.config.DeviceControlProperties;
 import com.animalguard.config.ReconciliationProperties;
+import com.animalguard.config.ResponsePolicyProperties;
 import com.animalguard.domain.ActuationBlocker;
 import com.animalguard.domain.CommandOutcome;
 import com.animalguard.domain.DetectionEvent;
@@ -74,6 +75,20 @@ class DeviceCommandCreationServiceTest {
         );
 
         assertThat(decision.blockers()).containsExactly(ActuationBlocker.RISK_POLICY_UNCONFIRMED);
+        verifyNoInteractions(deviceCommandRepository);
+    }
+
+    @Test
+    void suppressesCommandWhenResponsePolicyIsDisabledBeforeRepositoryAccess() {
+        CommandDecision decision = service(properties, true, true, false, true).createAutomaticIfAllowed(
+                event("event-response-policy"),
+                "cam-001",
+                DeviceCommandType.SOUND_ALERT,
+                2_000,
+                "risk reason"
+        );
+
+        assertThat(decision.blockers()).containsExactly(ActuationBlocker.RESPONSE_POLICY_DISABLED);
         verifyNoInteractions(deviceCommandRepository);
     }
 
@@ -353,8 +368,31 @@ class DeviceCommandCreationServiceTest {
             boolean riskPolicyConfirmed,
             boolean transportReady
     ) {
+        return service(
+                deviceControlProperties,
+                enabled,
+                riskPolicyConfirmed,
+                true,
+                transportReady
+        );
+    }
+
+    private DeviceCommandCreationService service(
+            DeviceControlProperties deviceControlProperties,
+            boolean enabled,
+            boolean riskPolicyConfirmed,
+            boolean responsePolicyEnabled,
+            boolean transportReady
+    ) {
         ActuationPreflightService preflightService = new ActuationPreflightService(
                 new ActuationProperties(enabled, riskPolicyConfirmed),
+                new ResponsePolicyProperties(
+                        responsePolicyEnabled,
+                        responsePolicyEnabled ? java.util.Set.of("MAGPIE") : java.util.Set.of(),
+                        0.0,
+                        null,
+                        null
+                ),
                 deviceControlProperties,
                 () -> transportReady
         );

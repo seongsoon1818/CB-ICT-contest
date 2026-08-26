@@ -2,6 +2,7 @@ package com.animalguard.service;
 
 import com.animalguard.config.ActuationProperties;
 import com.animalguard.config.DeviceControlProperties;
+import com.animalguard.config.ResponsePolicyProperties;
 import com.animalguard.domain.ActuationBlocker;
 import com.animalguard.domain.DeviceCommandType;
 import org.junit.jupiter.api.Test;
@@ -17,13 +18,14 @@ class ActuationPreflightServiceTest {
 
     @Test
     void returnsEveryCurrentBlockerInDeterministicOrder() {
-        ActuationPreflight preflight = service(false, false, Map.of(), false).evaluate();
+        ActuationPreflight preflight = service(false, false, false, Map.of(), false).evaluate();
 
         assertThat(preflight.enabled()).isFalse();
         assertThat(preflight.ready()).isFalse();
         assertThat(preflight.blockers()).containsExactly(
                 ActuationBlocker.ACTUATION_DISABLED,
                 ActuationBlocker.RISK_POLICY_UNCONFIRMED,
+                ActuationBlocker.RESPONSE_POLICY_DISABLED,
                 ActuationBlocker.CAMERA_DEVICE_MAPPING_EMPTY,
                 ActuationBlocker.MQTT_PUBLISHER_NOT_READY
         );
@@ -39,6 +41,12 @@ class ActuationPreflightServiceTest {
     void returnsOnlyRiskPolicyUnconfirmedWhenOtherConditionsAreReady() {
         assertThat(service(true, false, mapping(), true).evaluate().blockers())
                 .containsExactly(ActuationBlocker.RISK_POLICY_UNCONFIRMED);
+    }
+
+    @Test
+    void returnsOnlyResponsePolicyDisabledWhenOtherConditionsAreReady() {
+        assertThat(service(true, true, false, mapping(), true).evaluate().blockers())
+                .containsExactly(ActuationBlocker.RESPONSE_POLICY_DISABLED);
     }
 
     @Test
@@ -64,13 +72,13 @@ class ActuationPreflightServiceTest {
 
     @Test
     void stopBypassesActuationAndRiskPolicyBlockers() {
-        assertThat(service(false, false, mapping(), true)
+        assertThat(service(false, false, false, mapping(), true)
                 .blockersForAutomaticCommand(DeviceCommandType.STOP_DETERRENT)).isEmpty();
     }
 
     @Test
     void stopStillRequiresMappingAndTransportReadiness() {
-        assertThat(service(false, false, Map.of(), false)
+        assertThat(service(false, false, false, Map.of(), false)
                 .blockersForAutomaticCommand(DeviceCommandType.STOP_DETERRENT))
                 .containsExactly(
                         ActuationBlocker.CAMERA_DEVICE_MAPPING_EMPTY,
@@ -128,8 +136,25 @@ class ActuationPreflightServiceTest {
             Map<String, String> mappings,
             boolean transportReady
     ) {
+        return service(enabled, riskPolicyConfirmed, true, mappings, transportReady);
+    }
+
+    private ActuationPreflightService service(
+            boolean enabled,
+            boolean riskPolicyConfirmed,
+            boolean responsePolicyEnabled,
+            Map<String, String> mappings,
+            boolean transportReady
+    ) {
         return new ActuationPreflightService(
                 new ActuationProperties(enabled, riskPolicyConfirmed),
+                new ResponsePolicyProperties(
+                        responsePolicyEnabled,
+                        responsePolicyEnabled ? java.util.Set.of("MAGPIE") : java.util.Set.of(),
+                        0.0,
+                        null,
+                        null
+                ),
                 new DeviceControlProperties(
                         Duration.ofSeconds(20),
                         Duration.ofSeconds(10),

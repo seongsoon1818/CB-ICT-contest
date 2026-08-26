@@ -36,7 +36,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "animalguard.actuation.enabled=true",
-        "animalguard.actuation.risk-policy-confirmed=true"
+        "animalguard.actuation.risk-policy-confirmed=true",
+        "animalguard.response-policy.enabled=true",
+        "animalguard.response-policy.allowed-class-codes=MAGPIE,UNKNOWN,SPARROW,WILD_BOAR"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
