@@ -1,0 +1,24 @@
+[Unit]
+Description=AnimalGuard Raspberry Pi Embedded Controller
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=animalguard
+SupplementaryGroups=gpio
+WorkingDirectory=/opt/animalguard/embedded
+EnvironmentFile=/etc/animalguard/embedded.env
+ExecStart=/opt/animalguard/embedded/.venv/bin/python -m animalguard_embedded.main
+StateDirectory=animalguard
+StateDirectoryMode=0750
+UMask=0077
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

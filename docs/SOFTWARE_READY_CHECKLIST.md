@@ -27,12 +27,15 @@
 ## Raspberry Pi 연결 시
 
 - [ ] broker host/port와 TLS 사용 여부를 확정합니다.
+- [ ] TLS 전용 broker라면 Backend의 `tcp://` URI와 Pi의 non-TLS client를 그대로
+  사용하지 않고, 양쪽 TLS/인증서 설정 구현과 검증을 먼저 완료합니다.
 - [ ] username/password를 secret store 또는 배포 환경에 넣고 저장소에 커밋하지 않습니다.
 - [ ] stable `deviceId`를 Backend mapping, MQTT topic과 controller 설정에서 동일하게 사용합니다.
 - [ ] `cameraId -> deviceId` mapping을 실제 camera inventory와 대조합니다.
 - [ ] motor IN1/IN2/sleep, servo, speaker BCM pin을 실제 배선표로 확인합니다.
 - [ ] servo min/max/step과 motor/sound maximum duration을 module 사양으로 확인합니다.
 - [ ] camera 해상도·FPS·JPEG 설정과 AI Server URL을 확정합니다.
+- [ ] Pi의 NTP 동기화를 확인해 정상 command가 장치 시계 때문에 만료되지 않게 합니다.
 - [ ] camera-uploader와 embedded controller systemd unit, working directory, env/secret 권한과 restart policy를 검증합니다.
 - [ ] ONLINE/OFFLINE LWT, 다섯 semantic command, ACKNOWLEDGED/terminal ACK smoke를 실제 broker에서 실행합니다.
 - [ ] duplicate commandId, expired command와 STOP_DETERRENT가 실제 GPIO를 중복/지연 없이 처리하는지 확인합니다.
