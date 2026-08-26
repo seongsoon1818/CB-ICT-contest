@@ -1,6 +1,6 @@
 # Backend Server
 
-AnimalGuard의 Java 17·Spring Boot 3 Backend 서버입니다. Detection Event v1과 RiskDecision을 저장하고 camera별 aggregate animal observation으로 automatic semantic command를 선택합니다. 현재 observation policy는 RiskDecision을 감사 기록으로만 사용하며 risk score/level로 command 요청 여부나 type을 결정하지 않습니다. classCode별 response policy는 이슈 #5의 운영 점수 확정과 별도로 승인할 후속 범위입니다.
+AnimalGuard의 Java 17·Spring Boot 3 Backend 서버입니다. Detection Event v1과 RiskDecision을 저장하고 camera별 aggregate animal observation으로 automatic semantic command를 선택합니다. RiskDecision은 계속 전체 detection의 감사 판단이며 response eligibility는 별도 설정으로 어떤 detection이 automatic observation에 참여할지만 결정합니다. 선택적인 minimum risk level은 기존 RiskDecision 결과를 eligibility gate로 사용할 뿐 점수 계산이나 command type을 바꾸지 않습니다.
 
 ## API
 
@@ -57,7 +57,7 @@ animalguard:
     deterrent-full-duration: ${DETERRENT_FULL_DURATION:5s}
 ```
 
-기본값은 MVP 검증용이며 운영값이 아닙니다. 모든 값은 양수이고 continuity timeout은 absence grace 이상이어야 하며 두 command duration은 양수 int 밀리초로 변환 가능해야 합니다. `detections`가 하나 이상이면 classCode, confidence, 개체 수와 관계없이 하나의 aggregate presence입니다. 별도 최소 confidence나 classCode allowlist는 적용하지 않으므로 API validation을 통과한 `UNKNOWN` 저신뢰 탐지도 command intent를 만들 수 있습니다. sequence와 frame 수는 사용하지 않고 event의 `capturedAt`만으로 지속·grace·continuity를 계산합니다.
+기본값은 MVP 검증용이며 운영값이 아닙니다. 모든 값은 양수이고 continuity timeout은 absence grace 이상이어야 하며 두 command duration은 양수 int 밀리초로 변환 가능해야 합니다. enabled response policy를 통과한 detection이 하나 이상이면 동물 종류별 명령을 만들지 않고 하나의 aggregate presence로 처리합니다. sequence와 frame 수는 사용하지 않고 event의 `capturedAt`만으로 지속·grace·continuity를 계산합니다.
 
 ```text
 IDLE
@@ -75,6 +75,40 @@ PRESENT
 ## 위험도 설정
 
 `application.yml`의 `animalguard.risk`에서 class score, 탐지 수 threshold와 점수, confidence threshold와 점수, LOW/MEDIUM/HIGH 경계를 설정합니다. 설정 범위를 벗어난 값이나 역전된 위험도 경계는 애플리케이션 시작 시 거부됩니다. 이 값들은 현재 저장·응답하는 RiskDecision만 바꾸며 event별 command eligibility를 gate하지 않습니다. 운영 기본 class score는 현재 `MAGPIE: 30`, `UNKNOWN: 0`만 정의하며 다른 유해동물의 운영 점수는 확정하지 않았습니다. 따라서 이슈 #5에서 점수만 확정해도 현재 작동 조건은 달라지지 않으며, risk/class 기반 작동 조건은 별도 response policy 결정이 필요합니다.
+
+## 모델 독립 automatic response eligibility
+
+```yaml
+animalguard:
+  response-policy:
+    enabled: ${RESPONSE_POLICY_ENABLED:false}
+    allowed-class-codes: ${RESPONSE_ALLOWED_CLASS_CODES:}
+    minimum-detection-confidence: ${RESPONSE_MIN_DETECTION_CONFIDENCE:0.0}
+    minimum-classification-confidence: ${RESPONSE_MIN_CLASSIFICATION_CONFIDENCE:}
+    minimum-risk-level: ${RESPONSE_MIN_RISK_LEVEL:}
+```
+
+안전 기본값은 disabled입니다. disabled에서는 API validation을 통과한 detection도 automatic response 관점의 negative observation으로 처리하고 `RESPONSE_POLICY_DISABLED`가 일반 actuation 시작 preflight를 차단합니다. DetectionEvent, 모든 AnimalDetection과 전체 detection으로 계산한 RiskDecision은 그대로 저장합니다. 이 분리는 모델·운영 정책이 확정되기 전에 presence duration을 미리 누적하지 않게 합니다.
+
+enabled이면 allowlist는 비어 있을 수 없고 classCode는 API와 같은 대문자 형식이어야 합니다. 두 confidence threshold는 0~1이며 minimum risk level은 LOW, MEDIUM, HIGH 또는 미설정입니다. 각 detection은 다음 조건을 모두 만족해야 eligible입니다.
+
+1. classCode가 allowlist에 포함됩니다. `UNKNOWN`도 명시적으로 포함한 경우에만 통과합니다.
+2. detection confidence가 minimum 이상입니다.
+3. classification minimum을 설정했다면 classifier 결과가 존재하고 minimum 이상입니다. classifier가 없는 event는 이 조건을 통과하지 않습니다.
+4. minimum risk level을 설정했다면 전체 detection으로 먼저 계산·저장한 RiskDecision level이 minimum 이상입니다.
+
+하나 이상의 detection이 eligible이면 `animalPresent=true`, 아니면 empty detection과 같은 automatic negative observation으로 state machine에 전달합니다. 따라서 이전 positive session의 종료·safety STOP 평가도 기존 observation 규칙을 따릅니다. `STOP_DETERRENT`는 response policy blocker를 우회하고 수동 command는 response policy와 무관합니다. decision 로그는 payload 대신 `totalDetections`, `eligibleDetections`, `responsePolicyEnabled`, `minimumRiskLevel`, 최종 `animalPresent`만 기록합니다.
+
+실제 모델 연결 시 다음 값을 팀이 모델 manifest와 운영 합의에 맞춰 명시해야 합니다.
+
+- `RESPONSE_ALLOWED_CLASS_CODES`
+- `RESPONSE_MIN_DETECTION_CONFIDENCE`
+- classifier를 쓰는 경우 `RESPONSE_MIN_CLASSIFICATION_CONFIDENCE`; 쓰지 않으면 미설정
+- 필요한 경우 `RESPONSE_MIN_RISK_LEVEL`; 쓰지 않으면 미설정
+- 이슈 #5 정책 확인 뒤 `RISK_POLICY_CONFIRMED=true`
+- 앞의 값과 실제 MQTT/device readiness를 확인한 마지막 단계에서 `RESPONSE_POLICY_ENABLED=true`
+
+이 설정은 모델 runtime이나 classCode별 command vocabulary를 선택하지 않습니다. 이슈 #5와 #16은 실제 class list, threshold와 운영 근거가 확인될 때까지 별도로 유지합니다.
 
 ## 장치 명령 설정과 cooldown
 
@@ -133,6 +167,7 @@ blocked 상태도 진단 요청 자체는 성공했으므로 `200 OK`입니다.
   "blockers": [
     "ACTUATION_DISABLED",
     "RISK_POLICY_UNCONFIRMED",
+    "RESPONSE_POLICY_DISABLED",
     "CAMERA_DEVICE_MAPPING_EMPTY",
     "MQTT_PUBLISHER_NOT_READY"
   ]
@@ -143,12 +178,13 @@ blocked 상태도 진단 요청 자체는 성공했으므로 `200 OK`입니다.
 | --- | --- | --- | --- |
 | `ACTUATION_DISABLED` | `enabled=false` | 억제 | 운영 설정 |
 | `RISK_POLICY_UNCONFIRMED` | `risk-policy-confirmed=false` | 억제 | 이슈 #5와 팀 합의 |
+| `RESPONSE_POLICY_DISABLED` | `response-policy.enabled=false` | 자동 시작 억제 | 모델·운영 eligibility 설정 |
 | `CAMERA_DEVICE_MAPPING_EMPTY` | 전체 mapping이 비어 있음 | 억제 | 배포 설정 |
 | `MQTT_PUBLISHER_NOT_READY` | MQTT가 disabled이거나 client가 disconnected | 억제 | broker·배포 설정 |
 | `CAMERA_UNMAPPED` | 요청 cameraId가 mapping에 없음 | 억제 | 배포 설정 |
 | `COOLDOWN_ACTIVE` | 최신 command의 cooldown이 끝나지 않음 | 억제 | 시간 경과 |
 
-Preflight endpoint는 앞의 네 global blocker를 표 순서대로 모두 수집하는 일반 actuation 시작 readiness 의미를 유지합니다. SOUND_ALERT와 DETERRENT_FULL은 이 global gate를 사용합니다. safety-stop인 STOP_DETERRENT는 `ACTUATION_DISABLED`, `RISK_POLICY_UNCONFIRMED`, `COOLDOWN_ACTIVE`를 우회하지만 `CAMERA_DEVICE_MAPPING_EMPTY`, `MQTT_PUBLISHER_NOT_READY`, 특정 `CAMERA_UNMAPPED`는 여전히 적용합니다. 이 endpoint는 Backend 전체 health나 AI 모델 readiness를 대신하지 않습니다.
+Preflight endpoint는 앞의 다섯 global blocker를 표 순서대로 모두 수집하는 일반 actuation 시작 readiness 의미를 유지합니다. SOUND_ALERT와 DETERRENT_FULL은 이 global gate를 사용합니다. safety-stop인 STOP_DETERRENT는 `ACTUATION_DISABLED`, `RISK_POLICY_UNCONFIRMED`, `RESPONSE_POLICY_DISABLED`, `COOLDOWN_ACTIVE`를 우회하지만 `CAMERA_DEVICE_MAPPING_EMPTY`, `MQTT_PUBLISHER_NOT_READY`, 특정 `CAMERA_UNMAPPED`는 여전히 적용합니다. 이 endpoint는 Backend 전체 health나 AI 모델 readiness를 대신하지 않습니다.
 
 ## MQTT Publisher와 transport readiness
 

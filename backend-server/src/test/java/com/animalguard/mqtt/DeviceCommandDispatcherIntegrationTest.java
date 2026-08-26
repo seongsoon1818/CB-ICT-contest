@@ -7,6 +7,7 @@ import com.animalguard.domain.DeviceCommandStatus;
 import com.animalguard.domain.DeviceCommandType;
 import com.animalguard.repository.DetectionEventRepository;
 import com.animalguard.repository.DeviceCommandRepository;
+import com.animalguard.repository.RiskDecisionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +52,9 @@ class DeviceCommandDispatcherIntegrationTest {
     private DetectionEventRepository eventRepository;
 
     @Autowired
+    private RiskDecisionRepository riskDecisionRepository;
+
+    @Autowired
     private TransactionTemplate transactionTemplate;
 
     @Autowired
@@ -66,6 +70,7 @@ class DeviceCommandDispatcherIntegrationTest {
         subscriptionState.markAckActive();
         subscriptionState.markStatusActive();
         commandRepository.deleteAll();
+        riskDecisionRepository.deleteAll();
         eventRepository.deleteAll();
     }
 
