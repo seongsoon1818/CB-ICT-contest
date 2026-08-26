@@ -21,6 +21,70 @@ class FileFrameSource:
         pass
 
 
+class OpenCvFrameSource:
+    def __init__(
+        self,
+        device: str = "/dev/video0",
+        width: int = 1280,
+        height: int = 720,
+        target_fps: float = 30.0,
+    ) -> None:
+        try:
+            import cv2
+        except ImportError as error:
+            raise RuntimeError(
+                "OpenCV is not installed. Install the Raspberry Pi OS "
+                "python3-opencv package before using CAMERA_SOURCE=opencv."
+            ) from error
+
+        capture: Any | None = None
+        try:
+            capture = cv2.VideoCapture(device, cv2.CAP_V4L2)
+            if not capture.isOpened():
+                raise RuntimeError(f"Failed to open OpenCV camera device: {device}")
+            capture.set(
+                cv2.CAP_PROP_FOURCC,
+                cv2.VideoWriter_fourcc(*"MJPG"),
+            )
+            capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            capture.set(cv2.CAP_PROP_FPS, target_fps)
+            capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            if capture is not None:
+                with suppress(Exception):
+                    capture.release()
+            raise
+
+        self._cv2: Any | None = cv2
+        self._capture: Any | None = capture
+        self._device = device
+
+    def capture_jpeg(self) -> bytes:
+        if self._capture is None or self._cv2 is None:
+            raise RuntimeError("OpenCV source is closed")
+
+        captured, frame = self._capture.read()
+        if not captured or frame is None:
+            raise RuntimeError(
+                "Failed to capture frame from OpenCV camera device: "
+                f"{self._device}"
+            )
+
+        encoded, jpeg = self._cv2.imencode(".jpg", frame)
+        if not encoded:
+            raise RuntimeError("Failed to encode OpenCV frame as JPEG")
+        return jpeg.tobytes()
+
+    def close(self) -> None:
+        if self._capture is None:
+            return
+        capture = self._capture
+        self._capture = None
+        self._cv2 = None
+        capture.release()
+
+
 class Picamera2FrameSource:
     def __init__(
         self,

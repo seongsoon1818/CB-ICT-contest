@@ -18,7 +18,6 @@ from animalguard_camera.runtime_stats import RuntimeStats
 from animalguard_camera.settings import Settings
 from animalguard_camera.uploader import UploadResult
 
-
 CAPTURED_AT = datetime(2026, 8, 26, 1, 2, 3, tzinfo=timezone.utc)
 
 
@@ -77,6 +76,40 @@ class ResultUploader:
 
 def make_frame(sequence: int) -> CapturedFrame:
     return CapturedFrame(sequence, CAPTURED_AT, f"frame-{sequence}".encode())
+
+
+def test_create_source_builds_opencv_from_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_source = object()
+    constructor_calls: list[tuple[str, int, int, float]] = []
+
+    def create_opencv_source(
+        device: str,
+        width: int,
+        height: int,
+        target_fps: float,
+    ) -> object:
+        constructor_calls.append((device, width, height, target_fps))
+        return created_source
+
+    monkeypatch.setattr(
+        main_module,
+        "OpenCvFrameSource",
+        create_opencv_source,
+    )
+    settings = Settings(
+        ai_server_base_url="http://127.0.0.1:8000",
+        camera_id="cam-001",
+        camera_source="opencv",
+        camera_device="/dev/video7",
+        frame_width=640,
+        frame_height=480,
+        capture_fps=25.0,
+    )
+
+    assert main_module._create_source(settings) is created_source
+    assert constructor_calls == [("/dev/video7", 640, 480, 25.0)]
 
 
 def test_capture_producer_uses_30fps_period_and_publishes_aware_sequences() -> None:

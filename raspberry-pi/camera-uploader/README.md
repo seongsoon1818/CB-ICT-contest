@@ -50,21 +50,26 @@ Picamera2에는 목표 `FrameRate`를 요청하지만 카메라 모드, 해상�
 
 - Python 3.11 이상
 - `httpx`
-- 실제 카메라 사용 시 Raspberry Pi OS의 Picamera2
+- CSI 카메라 사용 시 Raspberry Pi OS의 Picamera2
+- USB/V4L2 카메라 사용 시 Raspberry Pi OS의 OpenCV
 
-Picamera2는 Raspberry Pi OS 카메라 스택에 결합된 시스템 패키지이므로
-`requirements.txt`에 포함하지 않습니다.
+Picamera2와 OpenCV는 Raspberry Pi OS 카메라·영상 스택에 결합된 시스템
+패키지이므로 `requirements.txt`에 포함하지 않습니다. 사용하는 카메라에 맞춰
+둘 중 하나를 설치합니다.
 
 ```bash
 sudo apt update
-sudo apt install python3-picamera2 python3-venv
+sudo apt install python3-venv
+# CSI camera
+sudo apt install python3-picamera2
+# USB/V4L2 camera
+sudo apt install python3-opencv
 python3 -m venv --system-site-packages .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-저장소에서 USB webcam 운영 경로를 가리키는 문서나 배포 참조가 확인되지 않아
-OpenCV source는 포함하지 않습니다. 실제 운영 근거가 생기면 `cv2` lazy import와
-Raspberry Pi OS의 `python3-opencv` 설치 방식을 별도 검토해야 합니다.
+Picamera2와 OpenCV는 선택한 source를 만들 때만 lazy import합니다. 따라서 한쪽
+시스템 패키지가 없어도 다른 source와 file smoke에는 영향을 주지 않습니다.
 
 ## 설정
 
@@ -79,7 +84,8 @@ Raspberry Pi OS의 `python3-opencv` 설치 방식을 별도 검토해야 합니�
 | `HTTP_TIMEOUT_SECONDS` | 아니요 | `10` | 0보다 큰 HTTP timeout |
 | `UPLOAD_TRANSIENT_BACKOFF_SECONDS` | 아니요 | `1` | transient 오류 뒤 대기, 0 이상 |
 | `STATS_INTERVAL_SECONDS` | 아니요 | `10` | 0보다 큰 집계 로그 주기 |
-| `CAMERA_SOURCE` | 아니요 | `picamera2` | `picamera2` 또는 `file` |
+| `CAMERA_SOURCE` | 아니요 | `picamera2` | `picamera2`, `opencv` 또는 `file` |
+| `CAMERA_DEVICE` | opencv 사용 시 | `/dev/video0` | USB/V4L2 장치 경로. `/dev/v4l/by-id` 권장 |
 | `FRAME_WIDTH` | 아니요 | `1280` | 캡처 폭 |
 | `FRAME_HEIGHT` | 아니요 | `720` | 캡처 높이 |
 | `TEST_FRAME_PATH` | file 사용 시 | 없음 | 로컬 smoke용 JPEG 경로 |
@@ -97,6 +103,27 @@ set -a
 set +a
 .venv/bin/python -m animalguard_camera.main
 ```
+
+## USB/V4L2 webcam 실행
+
+OpenCV source는 V4L2 backend로 장치를 한 번 열고 MJPEG, 설정된 폭·높이·목표
+FPS와 한 프레임 buffer를 요청합니다. 장치 번호는 재부팅이나 연결 순서에 따라
+바뀔 수 있으므로 `/dev/video0`보다 `/dev/v4l/by-id` symlink를 권장합니다.
+
+```bash
+export AI_SERVER_BASE_URL=http://10.112.89.131:8000
+export CAMERA_ID=cam-001
+export CAMERA_SOURCE=opencv
+export CAMERA_DEVICE=/dev/v4l/by-id/usb-webcam_webcam_AN20200825001-video-index0
+export FRAME_WIDTH=1280
+export FRAME_HEIGHT=720
+export CAPTURE_FPS=30
+.venv/bin/python -m animalguard_camera.main
+```
+
+장치가 요청한 모드를 그대로 적용하는지는 driver에 따라 다를 수 있습니다. 실제
+FPS와 backpressure는 uploader의 `effectiveCaptureFps`, `effectiveUploadFps`,
+`overwritten`, `latestFrameAgeMs` 로그로 확인합니다.
 
 ## 카메라 없이 로컬 smoke
 

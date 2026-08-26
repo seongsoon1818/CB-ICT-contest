@@ -8,13 +8,13 @@ from datetime import datetime, timezone
 from animalguard_camera.frame_source import (
     FileFrameSource,
     FrameSource,
+    OpenCvFrameSource,
     Picamera2FrameSource,
 )
 from animalguard_camera.latest_frame import CapturedFrame, LatestFrameSlot
 from animalguard_camera.runtime_stats import RuntimeSnapshot, RuntimeStats
 from animalguard_camera.settings import Settings
 from animalguard_camera.uploader import FrameUploader, UploadResult
-
 
 LOGGER = logging.getLogger(__name__)
 CAPTURE_WARNING_INTERVAL_SECONDS = 10.0
@@ -247,6 +247,13 @@ def _create_source(settings: Settings) -> FrameSource:
         if settings.test_frame_path is None:
             raise ValueError("TEST_FRAME_PATH is required when CAMERA_SOURCE=file")
         return FileFrameSource(settings.test_frame_path)
+    if settings.camera_source == "opencv":
+        return OpenCvFrameSource(
+            settings.camera_device,
+            settings.frame_width,
+            settings.frame_height,
+            settings.capture_fps,
+        )
     return Picamera2FrameSource(
         settings.frame_width,
         settings.frame_height,

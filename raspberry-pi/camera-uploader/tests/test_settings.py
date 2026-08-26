@@ -22,6 +22,7 @@ def test_settings_load_defaults_and_normalize_url() -> None:
     assert settings.upload_transient_backoff_seconds == 1.0
     assert settings.stats_interval_seconds == 10.0
     assert settings.camera_source == "picamera2"
+    assert settings.camera_device == "/dev/video0"
     assert settings.frame_width == 1280
     assert settings.frame_height == 720
 
@@ -83,3 +84,26 @@ def test_settings_rejects_deprecated_frame_interval() -> None:
 def test_file_source_requires_test_frame_path() -> None:
     with pytest.raises(ValueError, match="TEST_FRAME_PATH is required"):
         Settings.from_env(minimum_env(CAMERA_SOURCE="file"))
+
+
+def test_opencv_source_uses_default_camera_device() -> None:
+    settings = Settings.from_env(minimum_env(CAMERA_SOURCE="opencv"))
+
+    assert settings.camera_source == "opencv"
+    assert settings.camera_device == "/dev/video0"
+
+
+def test_opencv_source_loads_camera_device() -> None:
+    settings = Settings.from_env(
+        minimum_env(CAMERA_SOURCE="opencv", CAMERA_DEVICE="/dev/video7")
+    )
+
+    assert settings.camera_source == "opencv"
+    assert settings.camera_device == "/dev/video7"
+
+
+def test_opencv_source_rejects_blank_camera_device() -> None:
+    with pytest.raises(ValueError, match="CAMERA_DEVICE is required"):
+        Settings.from_env(
+            minimum_env(CAMERA_SOURCE="opencv", CAMERA_DEVICE=" ")
+        )

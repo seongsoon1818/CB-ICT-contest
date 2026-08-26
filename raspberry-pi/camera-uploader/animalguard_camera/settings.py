@@ -1,13 +1,13 @@
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
-from typing import Literal, Mapping, cast
-
+from typing import Literal, cast
 
 CAMERA_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-CameraSourceName = Literal["picamera2", "file"]
+CameraSourceName = Literal["picamera2", "opencv", "file"]
 MAX_CAPTURE_FPS = 30.0
 
 
@@ -20,6 +20,7 @@ class Settings:
     upload_transient_backoff_seconds: float = 1.0
     stats_interval_seconds: float = 10.0
     camera_source: CameraSourceName = "picamera2"
+    camera_device: str = "/dev/video0"
     test_frame_path: Path | None = None
     frame_width: int = 1280
     frame_height: int = 720
@@ -58,8 +59,16 @@ class Settings:
             "HTTP_TIMEOUT_SECONDS",
         )
         camera_source = values.get("CAMERA_SOURCE", "picamera2").strip().lower()
-        if camera_source not in {"picamera2", "file"}:
-            raise ValueError("CAMERA_SOURCE must be 'picamera2' or 'file'")
+        if camera_source not in {"picamera2", "opencv", "file"}:
+            raise ValueError(
+                "CAMERA_SOURCE must be 'picamera2', 'opencv', or 'file'"
+            )
+
+        camera_device = values.get("CAMERA_DEVICE", "/dev/video0").strip()
+        if camera_source == "opencv" and not camera_device:
+            raise ValueError(
+                "CAMERA_DEVICE is required when CAMERA_SOURCE=opencv"
+            )
 
         test_frame_value = values.get("TEST_FRAME_PATH", "").strip()
         test_frame_path = Path(test_frame_value) if test_frame_value else None
@@ -80,6 +89,7 @@ class Settings:
                 "STATS_INTERVAL_SECONDS",
             ),
             camera_source=cast(CameraSourceName, camera_source),
+            camera_device=camera_device,
             test_frame_path=test_frame_path,
             frame_width=_positive_int(values.get("FRAME_WIDTH", "1280"), "FRAME_WIDTH"),
             frame_height=_positive_int(
