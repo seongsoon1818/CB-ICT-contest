@@ -1,6 +1,6 @@
 # Backend Server
 
-AnimalGuard의 Java 17·Spring Boot 3 Backend 서버입니다. Detection Event v1과 RiskDecision을 저장하고 camera별 aggregate animal observation으로 automatic semantic command를 선택합니다. classCode별 response policy는 이슈 #5 이후 범위이며 현재 risk level로 command type을 임의 선택하지 않습니다.
+AnimalGuard의 Java 17·Spring Boot 3 Backend 서버입니다. Detection Event v1과 RiskDecision을 저장하고 camera별 aggregate animal observation으로 automatic semantic command를 선택합니다. 현재 observation policy는 RiskDecision을 감사 기록으로만 사용하며 risk score/level로 command 요청 여부나 type을 결정하지 않습니다. classCode별 response policy는 이슈 #5의 운영 점수 확정과 별도로 승인할 후속 범위입니다.
 
 ## API
 
@@ -30,7 +30,7 @@ animalguard:
     deterrent-full-duration: ${DETERRENT_FULL_DURATION:5s}
 ```
 
-기본값은 MVP 검증용이며 운영값이 아닙니다. 모든 값은 양수이고 continuity timeout은 absence grace 이상이어야 하며 두 command duration은 양수 int 밀리초로 변환 가능해야 합니다. `detections`가 하나 이상이면 classCode와 개체 수에 관계없이 하나의 aggregate presence입니다. sequence와 frame 수는 사용하지 않고 event의 `capturedAt`만으로 지속·grace·continuity를 계산합니다.
+기본값은 MVP 검증용이며 운영값이 아닙니다. 모든 값은 양수이고 continuity timeout은 absence grace 이상이어야 하며 두 command duration은 양수 int 밀리초로 변환 가능해야 합니다. `detections`가 하나 이상이면 classCode, confidence, 개체 수와 관계없이 하나의 aggregate presence입니다. 별도 최소 confidence나 classCode allowlist는 적용하지 않으므로 API validation을 통과한 `UNKNOWN` 저신뢰 탐지도 command intent를 만들 수 있습니다. sequence와 frame 수는 사용하지 않고 event의 `capturedAt`만으로 지속·grace·continuity를 계산합니다.
 
 ```text
 IDLE
@@ -47,7 +47,7 @@ PRESENT
 
 ## 위험도 설정
 
-`application.yml`의 `animalguard.risk`에서 class score, 탐지 수 threshold와 점수, confidence threshold와 점수, LOW/MEDIUM/HIGH 경계를 설정합니다. 설정 범위를 벗어난 값이나 역전된 위험도 경계는 애플리케이션 시작 시 거부됩니다. 운영 기본 class score는 현재 `MAGPIE: 30`, `UNKNOWN: 0`만 정의하며 다른 유해동물의 운영 점수는 확정하지 않았습니다.
+`application.yml`의 `animalguard.risk`에서 class score, 탐지 수 threshold와 점수, confidence threshold와 점수, LOW/MEDIUM/HIGH 경계를 설정합니다. 설정 범위를 벗어난 값이나 역전된 위험도 경계는 애플리케이션 시작 시 거부됩니다. 이 값들은 현재 저장·응답하는 RiskDecision만 바꾸며 event별 command eligibility를 gate하지 않습니다. 운영 기본 class score는 현재 `MAGPIE: 30`, `UNKNOWN: 0`만 정의하며 다른 유해동물의 운영 점수는 확정하지 않았습니다. 따라서 이슈 #5에서 점수만 확정해도 현재 작동 조건은 달라지지 않으며, risk/class 기반 작동 조건은 별도 response policy 결정이 필요합니다.
 
 ## 장치 명령 설정과 cooldown
 
@@ -72,6 +72,8 @@ cooldown과 command TTL은 모두 양수여야 하고 command TTL은 cooldown보
 - 같은 type이고 `latest.createdAt + cooldown > now`이면 `COOLDOWN_ACTIVE`입니다.
 - `STOP_DETERRENT`는 cooldown을 우회하고 최근 MANUAL command는 automatic cooldown에 영향을 주지 않습니다.
 
+따라서 이 cooldown은 같은 type의 빠른 반복만 막으며 command type과 무관한 장치별 최소 명령 간격은 보장하지 않습니다. 같은 PRESENT session의 marker가 SOUND_ALERT와 DETERRENT_FULL 중복을 막고, marker는 command duration이 끝나도 만료되지 않으므로 동물이 계속 감지되는 한 DETERRENT_FULL도 한 번만 생성됩니다. 반복 퇴치 주기는 현재 정책에 없습니다.
+
 `IDLE`에서는 `AUTOMATIC`/`CREATED` command를 저장하고 응답에 `commandId`를 포함합니다. 새 command는 호출자가 선택한 semantic type과 원본 `reason`, 서버 Clock의 `issuedAt`, `issuedAt + commandTtl`인 `expiresAt`을 저장하며 DB record 생성 시각 `createdAt`은 현재 MVP에서 `issuedAt`과 같습니다. reason이 500자를 넘으면 truncate하지 않고 생성을 거절합니다. `COOLDOWN`에서는 `SUPPRESSED/COOLDOWN_ACTIVE`, 매핑되지 않은 cameraId에서는 `SUPPRESSED/CAMERA_UNMAPPED`를 반환하고 DeviceCommand를 만들지 않습니다. cameraId를 deviceId로 fallback하지 않습니다.
 
 `animal_observation_states`는 camera별 IDLE/PRESENT와 session timestamp, CREATED command marker를 저장합니다. marker는 실제 publish, ACK 또는 GPIO 실행을 뜻하지 않습니다. ACK에서 FAILED/EXPIRED가 된 뒤 marker를 재설정하는 reconciliation은 아직 없습니다. cooldown의 source of truth는 `device_commands.created_at`이며 observation duration과 달리 Backend Clock 기준입니다.
@@ -89,7 +91,7 @@ animalguard:
     risk-policy-confirmed: ${RISK_POLICY_CONFIRMED:false}
 ```
 
-두 값의 기본값은 모두 false입니다. 이슈 #5가 완료되기 전에는 `risk-policy-confirmed=false`를 유지하며 현재 `MAGPIE`, `UNKNOWN` 점수 설정만으로 운영 정책이 확정됐다고 추정하지 않습니다. 실제 MQTT Publisher가 없는 현재 기본 `ActuationTransportReadiness`도 항상 false입니다. readiness를 운영 property로 우회할 수 없으며 다음 MQTT PR이 실제 연결 상태를 제공하는 bean으로 교체합니다.
+두 값의 기본값은 모두 false입니다. 이슈 #5가 완료되기 전에는 `risk-policy-confirmed=false`를 유지하며 현재 `MAGPIE`, `UNKNOWN` 점수 설정만으로 운영 정책이 확정됐다고 추정하지 않습니다. `risk-policy-confirmed`는 운영자가 명시적으로 해제하는 global readiness gate이며 개별 event의 risk score/level을 판정하는 gate가 아닙니다. 실제 MQTT Publisher가 없는 현재 기본 `ActuationTransportReadiness`도 항상 false입니다. readiness를 운영 property로 우회할 수 없으며 다음 MQTT PR이 실제 연결 상태를 제공하는 bean으로 교체합니다.
 
 ```text
 GET /api/v1/actuation/preflight
