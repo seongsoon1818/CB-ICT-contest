@@ -88,16 +88,6 @@ public class DeviceCommandCreationService {
         if (deviceId == null) {
             return CommandDecision.suppressed(List.of(ActuationBlocker.CAMERA_UNMAPPED));
         }
-        if (sessionFirstDetectedAt != null
-                && deviceCommandRepository.countAutomaticAttemptsInObservationSession(
-                cameraId,
-                DeviceCommandSource.AUTOMATIC,
-                commandType,
-                sessionFirstDetectedAt
-        ) >= reconciliationProperties.maxAutomaticAttemptsPerSession()) {
-            return CommandDecision.suppressed(List.of(ActuationBlocker.AUTOMATIC_RETRY_EXHAUSTED));
-        }
-
         commandGate.lock();
         boolean releaseOnReturn = true;
         try {
@@ -109,6 +99,16 @@ public class DeviceCommandCreationService {
                     }
                 });
                 releaseOnReturn = false;
+            }
+
+            if (sessionFirstDetectedAt != null
+                    && deviceCommandRepository.countAutomaticAttemptsInObservationSession(
+                    cameraId,
+                    DeviceCommandSource.AUTOMATIC,
+                    commandType,
+                    sessionFirstDetectedAt
+            ) >= reconciliationProperties.maxAutomaticAttemptsPerSession()) {
+                return CommandDecision.suppressed(List.of(ActuationBlocker.AUTOMATIC_RETRY_EXHAUSTED));
             }
 
             Instant now = clock.instant();
