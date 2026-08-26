@@ -61,7 +61,10 @@ public class DeviceCommandDispatchCoordinator {
         }
 
         Instant now = clock.instant();
-        List<ActuationBlocker> blockers = preflightService.blockersForAutomaticCommand(command.getCommandType());
+        List<ActuationBlocker> blockers = preflightService.blockersForAutomaticDispatch(
+                command.getCommandType(),
+                command.getDeviceId()
+        );
         if (!now.isBefore(command.getExpiresAt())) {
             command.markExpired(now, null);
             return Optional.empty();

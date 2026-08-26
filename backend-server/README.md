@@ -91,7 +91,7 @@ animalguard:
     risk-policy-confirmed: ${RISK_POLICY_CONFIRMED:false}
 ```
 
-두 값의 기본값은 모두 false입니다. 이슈 #5가 완료되기 전에는 `risk-policy-confirmed=false`를 유지하며 현재 `MAGPIE`, `UNKNOWN` 점수 설정만으로 운영 정책이 확정됐다고 추정하지 않습니다. `risk-policy-confirmed`는 운영자가 명시적으로 해제하는 global readiness gate이며 개별 event의 risk score/level을 판정하는 gate가 아닙니다. 실제 MQTT Publisher가 없는 현재 기본 `ActuationTransportReadiness`도 항상 false입니다. readiness를 운영 property로 우회할 수 없으며 다음 MQTT PR이 실제 연결 상태를 제공하는 bean으로 교체합니다.
+두 값의 기본값은 모두 false입니다. 이슈 #5가 완료되기 전에는 `risk-policy-confirmed=false`를 유지하며 현재 `MAGPIE`, `UNKNOWN` 점수 설정만으로 운영 정책이 확정됐다고 추정하지 않습니다. `risk-policy-confirmed`는 운영자가 명시적으로 해제하는 global readiness gate이며 개별 event의 risk score/level을 판정하는 gate가 아닙니다. `ActuationTransportReadiness`는 MQTT enabled와 실제 client connection을 함께 요구하며 운영 property로 ready를 강제할 수 없습니다.
 
 ```text
 GET /api/v1/actuation/preflight
@@ -117,7 +117,7 @@ blocked 상태도 진단 요청 자체는 성공했으므로 `200 OK`입니다.
 | `ACTUATION_DISABLED` | `enabled=false` | 억제 | 운영 설정 |
 | `RISK_POLICY_UNCONFIRMED` | `risk-policy-confirmed=false` | 억제 | 이슈 #5와 팀 합의 |
 | `CAMERA_DEVICE_MAPPING_EMPTY` | 전체 mapping이 비어 있음 | 억제 | 배포 설정 |
-| `MQTT_PUBLISHER_NOT_READY` | transport readiness가 false | 억제 | 다음 MQTT PR |
+| `MQTT_PUBLISHER_NOT_READY` | MQTT가 disabled이거나 client가 disconnected | 억제 | broker·배포 설정 |
 | `CAMERA_UNMAPPED` | 요청 cameraId가 mapping에 없음 | 억제 | 배포 설정 |
 | `COOLDOWN_ACTIVE` | 최신 command의 cooldown이 끝나지 않음 | 억제 | 시간 경과 |
 
@@ -156,7 +156,7 @@ animalguard/devices/{encodedDeviceId}/commands
 
 Publisher JSON은 Entity를 직접 serialize하지 않고 MQTT 전용 DTO를 사용합니다. `commandId`, `eventId`, `deviceId`, `source`, `command`, `durationMs`, `issuedAt`, `expiresAt`, `reason` 아홉 필드를 항상 포함하며 null인 `eventId`와 `durationMs`도 생략하지 않습니다. 현재 PR은 `AUTOMATIC` command만 dispatch하므로 eventId는 Detection Event UUID입니다. MANUAL payload DTO 계약은 준비돼 있지만 실제 생성·dispatch는 수동 API PR 범위입니다.
 
-단일 scheduler thread가 `CREATED/AUTOMATIC` command를 `createdAt`, DB id 오름차순으로 batch 조회합니다. 이 Publisher 도입 전에 생성된 row도 동일 조건을 만족하면 대상입니다. 각 command는 reload 후 source/status, source별 preflight, `expiresAt`, payload 계약을 다시 확인합니다.
+단일 scheduler thread가 `CREATED/AUTOMATIC` command를 `createdAt`, DB id 오름차순으로 batch 조회합니다. 이 Publisher 도입 전에 생성된 row도 동일 조건을 만족하면 대상입니다. 각 command는 reload 후 source/status, source별 preflight, 현재 camera-device mapping에 대상 deviceId가 남아 있는지, `expiresAt`, payload 계약을 다시 확인합니다.
 
 - `now >= expiresAt`: `EXPIRED(now, reportedAt=null)`로 commit하고 publish하지 않습니다.
 - preflight blocked: `CREATED`를 유지해 설정·연결이 준비된 이후 재평가하고 publish하지 않습니다.

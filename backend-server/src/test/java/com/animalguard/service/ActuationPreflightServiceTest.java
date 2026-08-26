@@ -79,6 +79,23 @@ class ActuationPreflightServiceTest {
     }
 
     @Test
+    void dispatchRequiresTheCommandTargetToRemainInCurrentMappings() {
+        assertThat(service(true, true, mapping(), true)
+                .blockersForAutomaticDispatch(DeviceCommandType.SOUND_ALERT, "pi-stale"))
+                .containsExactly(ActuationBlocker.CAMERA_UNMAPPED);
+        assertThat(service(true, true, mapping(), true)
+                .blockersForAutomaticDispatch(DeviceCommandType.SOUND_ALERT, "pi-001"))
+                .isEmpty();
+    }
+
+    @Test
+    void stopDispatchPreservesReducedGateButStillRequiresCurrentTargetMapping() {
+        assertThat(service(false, false, mapping(), true)
+                .blockersForAutomaticDispatch(DeviceCommandType.STOP_DETERRENT, "pi-stale"))
+                .containsExactly(ActuationBlocker.CAMERA_UNMAPPED);
+    }
+
+    @Test
     void preflightBlockersAreUnmodifiableAndConsistentWithReady() {
         ActuationPreflight preflight = service(false, true, mapping(), true).evaluate();
 

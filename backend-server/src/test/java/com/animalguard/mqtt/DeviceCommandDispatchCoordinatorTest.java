@@ -52,7 +52,7 @@ class DeviceCommandDispatchCoordinatorTest {
     void preparesPayloadAndMarksPublishedInsideTransaction() {
         DeviceCommand command = automaticCommand("command-ready", NOW.plusSeconds(5));
         when(repository.findByCommandId("command-ready")).thenReturn(Optional.of(command));
-        when(preflightService.blockersForAutomaticCommand(DeviceCommandType.SOUND_ALERT))
+        when(preflightService.blockersForAutomaticDispatch(DeviceCommandType.SOUND_ALERT, "pi-001"))
                 .thenReturn(List.of());
 
         Optional<PreparedMqttCommand> result = coordinator.prepare("command-ready");
@@ -73,7 +73,7 @@ class DeviceCommandDispatchCoordinatorTest {
     void expiresCreatedCommandAtBoundaryWithoutPreparingPublish() {
         DeviceCommand command = automaticCommand("command-expired", NOW);
         when(repository.findByCommandId("command-expired")).thenReturn(Optional.of(command));
-        when(preflightService.blockersForAutomaticCommand(DeviceCommandType.SOUND_ALERT))
+        when(preflightService.blockersForAutomaticDispatch(DeviceCommandType.SOUND_ALERT, "pi-001"))
                 .thenReturn(List.of());
 
         assertThat(coordinator.prepare("command-expired")).isEmpty();
@@ -87,7 +87,7 @@ class DeviceCommandDispatchCoordinatorTest {
     void leavesBlockedPreflightCommandCreatedForLaterReadiness() {
         DeviceCommand command = automaticCommand("command-blocked", NOW.plusSeconds(5));
         when(repository.findByCommandId("command-blocked")).thenReturn(Optional.of(command));
-        when(preflightService.blockersForAutomaticCommand(DeviceCommandType.SOUND_ALERT))
+        when(preflightService.blockersForAutomaticDispatch(DeviceCommandType.SOUND_ALERT, "pi-001"))
                 .thenReturn(List.of(ActuationBlocker.MQTT_PUBLISHER_NOT_READY));
 
         assertThat(coordinator.prepare("command-blocked")).isEmpty();
@@ -110,7 +110,7 @@ class DeviceCommandDispatchCoordinatorTest {
     void rejectsInvalidPayloadWithoutAdvancingCreatedState() {
         DeviceCommand command = automaticCommand("command-invalid", NOW.plusSeconds(5), "not-a-uuid");
         when(repository.findByCommandId("command-invalid")).thenReturn(Optional.of(command));
-        when(preflightService.blockersForAutomaticCommand(DeviceCommandType.SOUND_ALERT))
+        when(preflightService.blockersForAutomaticDispatch(DeviceCommandType.SOUND_ALERT, "pi-001"))
                 .thenReturn(List.of());
 
         assertThatThrownBy(() -> coordinator.prepare("command-invalid"))
