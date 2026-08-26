@@ -9,7 +9,11 @@ import org.springframework.context.annotation.Fallback;
 import java.time.Clock;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties({DeviceControlProperties.class, ActuationProperties.class})
+@EnableConfigurationProperties({
+        DeviceControlProperties.class,
+        ActuationProperties.class,
+        ObservationProperties.class
+})
 public class DeviceControlConfiguration {
 
     @Bean

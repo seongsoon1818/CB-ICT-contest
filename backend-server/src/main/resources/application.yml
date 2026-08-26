@@ -27,6 +27,13 @@ server:
   port: ${SERVER_PORT:8080}
 
 animalguard:
+  observation:
+    # MVP verification defaults; production values require operational tuning.
+    persistence-threshold: ${ANIMAL_PERSISTENCE_THRESHOLD:5s}
+    absence-grace: ${ANIMAL_ABSENCE_GRACE:2s}
+    continuity-timeout: ${ANIMAL_CONTINUITY_TIMEOUT:3s}
+    sound-alert-duration: ${SOUND_ALERT_DURATION:2s}
+    deterrent-full-duration: ${DETERRENT_FULL_DURATION:5s}
   actuation:
     enabled: ${ACTUATION_ENABLED:false}
     risk-policy-confirmed: ${RISK_POLICY_CONFIRMED:false}

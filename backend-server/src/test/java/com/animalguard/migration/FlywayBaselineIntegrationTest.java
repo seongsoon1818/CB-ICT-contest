@@ -34,5 +34,15 @@ class FlywayBaselineIntegrationTest {
         )).isEqualTo(Arrays.stream(flyway.info().applied())
                 .filter(migration -> migration.getVersion() != null)
                 .count());
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'ANIMAL_OBSERVATION_STATES'",
+                Long.class
+        )).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS "
+                        + "WHERE CONSTRAINT_NAME = 'UK_ANIMAL_OBSERVATION_STATES_CAMERA_ID'",
+                Long.class
+        )).isEqualTo(1L);
     }
 }
