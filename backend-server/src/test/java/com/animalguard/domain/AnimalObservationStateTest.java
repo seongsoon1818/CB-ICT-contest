@@ -26,7 +26,7 @@ class AnimalObservationStateTest {
         state.recordSoundAlertCommand("command-sound", T0.plusSeconds(10));
         state.recordPresent(T0.plusSeconds(2), T0.plusSeconds(11));
         state.startAbsence(T0.plusSeconds(3), T0.plusSeconds(12));
-        state.clearAbsenceWithPresent(T0.plusSeconds(4), T0.plusSeconds(13));
+        state.recordPresent(T0.plusSeconds(4), T0.plusSeconds(13));
         state.recordDeterrentFullCommand("command-full", T0.plusSeconds(13));
 
         assertThat(state.getPresenceState()).isEqualTo(AnimalPresenceState.PRESENT);

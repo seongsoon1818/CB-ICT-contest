@@ -125,6 +125,24 @@ class DetectionEventControllerIntegrationTest {
     }
 
     @Test
+    void selectsFirstDetectionSoundAlertForAcceptedLowConfidenceUnknownDetection() throws Exception {
+        mockMvc.perform(post("/api/v1/detection/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(lowConfidenceUnknownPayload(EVENT_ID)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.riskScore", is(0)))
+                .andExpect(jsonPath("$.riskLevel", is("LOW")))
+                .andExpect(jsonPath("$.commandOutcome", is("CREATED")))
+                .andExpect(jsonPath("$.commandBlockers").isEmpty())
+                .andExpect(jsonPath("$.commandId").isNotEmpty());
+
+        assertThat(detectionEventRepository.count()).isEqualTo(1);
+        assertThat(animalDetectionRepository.count()).isEqualTo(1);
+        assertThat(riskDecisionRepository.count()).isEqualTo(1);
+        assertThat(deviceCommandRepository.count()).isEqualTo(1);
+    }
+
+    @Test
     void acceptsEmptyDetectionsAsLowRiskWithoutDeviceCommand() throws Exception {
         transportReadiness.setReady(false);
 
@@ -386,6 +404,21 @@ class DetectionEventControllerIntegrationTest {
 
     private String highRiskPayload(String eventId) {
         return highRiskPayload(eventId, "cam-001");
+    }
+
+    private String lowConfidenceUnknownPayload(String eventId) {
+        return """
+                {
+                  "eventId": "%s",
+                  "cameraId": "cam-001",
+                  "capturedAt": "2026-08-24T08:00:00Z",
+                  "image": {"width": 1280, "height": 720},
+                  "model": {"detectorVersion": "animal-detector-v1", "classifierVersion": null},
+                  "detections": [
+                    {"detectionId": "det-001", "trackId": null, "classCode": "UNKNOWN", "detectionConfidence": 0.01, "classificationConfidence": null, "bbox": {"x": 100, "y": 200, "width": 50, "height": 60}}
+                  ]
+                }
+                """.formatted(eventId);
     }
 
     private String highRiskPayload(String eventId, String cameraId) {

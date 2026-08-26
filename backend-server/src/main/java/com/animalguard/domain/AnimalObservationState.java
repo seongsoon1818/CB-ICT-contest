@@ -123,10 +123,6 @@ public class AnimalObservationState {
         markProcessed(capturedAt, now);
     }
 
-    public void clearAbsenceWithPresent(Instant capturedAt, Instant now) {
-        recordPresent(capturedAt, now);
-    }
-
     public void startAbsence(Instant capturedAt, Instant now) {
         requireState(AnimalPresenceState.PRESENT);
         requireAfterProcessed(capturedAt);
@@ -164,6 +160,7 @@ public class AnimalObservationState {
 
     public void resetToIdle(Instant capturedAt, Instant now) {
         requireState(AnimalPresenceState.PRESENT);
+        // processEmpty records this capturedAt through startAbsence before confirming disappearance.
         if (capturedAt.isBefore(lastProcessedCapturedAt)) {
             throw new IllegalArgumentException("capturedAt must not precede last processed capturedAt");
         }
