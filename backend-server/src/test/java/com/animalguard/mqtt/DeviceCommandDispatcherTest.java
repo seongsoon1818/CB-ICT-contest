@@ -1,7 +1,6 @@
 package com.animalguard.mqtt;
 
 import com.animalguard.config.MqttProperties;
-import com.animalguard.domain.DeviceCommandSource;
 import com.animalguard.domain.DeviceCommandStatus;
 import com.animalguard.repository.DeviceCommandRepository;
 import org.junit.jupiter.api.Test;
@@ -38,11 +37,10 @@ class DeviceCommandDispatcherTest {
     }
 
     @Test
-    void queriesOldestAutomaticCreatedBatchAndPublishesAfterPreparationReturns() {
+    void queriesOldestCreatedBatchAndPublishesAfterPreparationReturns() {
         byte[] payload = "{\"commandId\":\"command-001\"}".getBytes(StandardCharsets.UTF_8);
         when(repository.findDispatchCandidateCommandIds(
                 DeviceCommandStatus.CREATED,
-                DeviceCommandSource.AUTOMATIC,
                 PageRequest.of(0, 20)
         )).thenReturn(List.of("command-001"));
         when(coordinator.prepare("command-001")).thenReturn(Optional.of(new PreparedMqttCommand(
@@ -106,7 +104,6 @@ class DeviceCommandDispatcherTest {
     void payloadContractErrorDoesNotBlockNextCandidate() {
         when(repository.findDispatchCandidateCommandIds(
                 DeviceCommandStatus.CREATED,
-                DeviceCommandSource.AUTOMATIC,
                 PageRequest.of(0, 20)
         )).thenReturn(List.of("command-invalid", "command-valid"));
         when(coordinator.prepare("command-invalid"))
@@ -126,7 +123,6 @@ class DeviceCommandDispatcherTest {
     private void candidates(String commandId) {
         when(repository.findDispatchCandidateCommandIds(
                 DeviceCommandStatus.CREATED,
-                DeviceCommandSource.AUTOMATIC,
                 PageRequest.of(0, 20)
         )).thenReturn(List.of(commandId));
     }

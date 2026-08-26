@@ -18,6 +18,33 @@ POST /api/v1/detection/events
 
 현재 suppression 판정은 Detection Event API 응답과 event당 한 건의 Backend 명령 판정 로그로만 진단합니다. DB에는 별도 저장하지 않으므로 durable audit이 필요하면 별도 schema와 migration을 설계해야 합니다. DB 저장 실패나 잘못된 Entity 불변식 같은 시스템 오류는 `SUPPRESSED`로 변환하지 않습니다.
 
+### 수동 장치 명령 API
+
+```text
+POST /api/v1/devices/{deviceId}/commands
+X-Operator-Token: <deployment secret>
+```
+
+```json
+{
+  "requestId": "15356786-9588-4db4-a0fe-f8acd6300868",
+  "command": "ROTATE_CAMERA_LEFT"
+}
+```
+
+`ROTATE_CAMERA_LEFT`, `ROTATE_CAMERA_RIGHT`, `STOP_DETERRENT`만 허용하며 `SOUND_ALERT`와 `DETERRENT_FULL`은 `400`으로 거절합니다. deviceId는 `camera-device-mappings`의 value로 등록된 장치여야 하고 알 수 없는 장치는 `404`입니다. 동일 requestId는 `manual-{requestId}` commandId로 결정적으로 매핑됩니다. 같은 장치·command의 재요청은 기존 command를 반환하고 다른 장치나 command에 requestId를 재사용하면 `409`입니다.
+
+```yaml
+animalguard:
+  operator-api:
+    enabled: ${OPERATOR_API_ENABLED:false}
+    token: ${OPERATOR_API_TOKEN:}
+```
+
+기본값은 disabled이며 enabled일 때 token은 non-blank여야 합니다. 실제 token은 tracked 설정이나 로그에 넣지 않습니다. 누락되거나 일치하지 않는 token은 모두 `401`이고 token 비교는 constant-time API를 사용합니다. 이는 MVP의 단일 shared operator token 경계이며 사용자별 계정, 권한, 폐기·회전 이력은 제공하지 않습니다.
+
+수동 회전은 operator API, token, actuation enabled, MQTT readiness, known device를 요구하지만 risk/response policy와 automatic cooldown은 요구하지 않습니다. 수동 STOP은 safety-stop으로 actuation disabled까지 우회하고 operator API, token, MQTT readiness, known device만 요구합니다. 정상 suppression은 `200/SUPPRESSED`, 생성 또는 동일 idempotent 요청은 `201/CREATED`입니다. 생성된 행은 `source=MANUAL`, `event=null`, `durationMs=null`, `reason=USER_REQUEST`, `expiresAt=issuedAt+commandTtl`입니다.
+
 ## 동물 관찰 설정과 State Machine
 
 ```yaml
@@ -154,9 +181,9 @@ animalguard/devices/{encodedDeviceId}/commands
 
 `deviceId`는 UTF-8 RFC3986 percent encoding을 사용합니다. 영문, 숫자, `-`, `.`, `_`, `~`는 유지하고 `/`, `+`, `#`, `%`, 공백과 그 밖의 byte는 `%HH`로 인코딩합니다. form encoding의 `+`를 공백 의미로 사용하지 않습니다. payload의 원본 `deviceId`와 topic segment를 decode한 값은 같아야 합니다.
 
-Publisher JSON은 Entity를 직접 serialize하지 않고 MQTT 전용 DTO를 사용합니다. `commandId`, `eventId`, `deviceId`, `source`, `command`, `durationMs`, `issuedAt`, `expiresAt`, `reason` 아홉 필드를 항상 포함하며 null인 `eventId`와 `durationMs`도 생략하지 않습니다. 현재 PR은 `AUTOMATIC` command만 dispatch하므로 eventId는 Detection Event UUID입니다. MANUAL payload DTO 계약은 준비돼 있지만 실제 생성·dispatch는 수동 API PR 범위입니다.
+Publisher JSON은 Entity를 직접 serialize하지 않고 MQTT 전용 DTO를 사용합니다. `commandId`, `eventId`, `deviceId`, `source`, `command`, `durationMs`, `issuedAt`, `expiresAt`, `reason` 아홉 필드를 항상 포함하며 null인 `eventId`와 `durationMs`도 생략하지 않습니다. AUTOMATIC의 eventId는 Detection Event UUID이고 MANUAL은 eventId와 durationMs가 null입니다.
 
-단일 scheduler thread가 `CREATED/AUTOMATIC` command를 `createdAt`, DB id 오름차순으로 batch 조회합니다. 이 Publisher 도입 전에 생성된 row도 동일 조건을 만족하면 대상입니다. 각 command는 reload 후 source/status, source별 preflight, 현재 camera-device mapping에 대상 deviceId가 남아 있는지, `expiresAt`, payload 계약을 다시 확인합니다.
+단일 scheduler thread가 source와 관계없이 `CREATED` command를 `createdAt`, DB id 오름차순으로 batch 조회합니다. 이 Publisher 도입 전에 생성된 row도 동일 조건을 만족하면 대상입니다. 각 command는 reload 후 source/status, source별 preflight, 현재 camera-device mapping에 대상 deviceId가 남아 있는지, `expiresAt`, payload 계약을 다시 확인합니다. MANUAL 회전은 actuation과 transport를, MANUAL STOP은 reduced gate로 transport를 확인하며 둘 다 operator API 활성화와 현재 known-device mapping을 재검사합니다.
 
 - `now >= expiresAt`: `EXPIRED(now, reportedAt=null)`로 commit하고 publish하지 않습니다.
 - preflight blocked: `CREATED`를 유지해 설정·연결이 준비된 이후 재평가하고 publish하지 않습니다.
@@ -165,7 +192,7 @@ Publisher JSON은 Entity를 직접 serialize하지 않고 MQTT 전용 DTO를 사
 
 `PUBLISHED`는 broker delivery 증명이 아니라 dispatch가 승인돼 publish 호출을 시작했다는 뜻입니다. transaction commit 뒤 transport를 호출하므로 즉시 도착하는 후속 ACK가 `CREATED`를 관찰하지 않습니다. Paho publish가 즉시 실패하면 별도 transaction에서 현재 상태가 여전히 `PUBLISHED`인 command만 `FAILED(now, reportedAt=null)`로 바꿉니다. publish timeout, disconnect, optimistic-lock 충돌을 이유로 MQTT command를 자동 재발행하지 않습니다.
 
-process가 `PUBLISHED` commit 후 publish 전이나 호출 도중 종료되면 delivery 없이 `PUBLISHED`가 남을 수 있습니다. 이 crash window와 PUBLISHED/ACKNOWLEDGED timeout은 reconciliation PR 책임입니다. manual command dispatch, TLS/ACL, outbox, multi-instance coordination도 현재 범위에 포함하지 않습니다.
+process가 `PUBLISHED` commit 후 publish 전이나 호출 도중 종료되면 delivery 없이 `PUBLISHED`가 남을 수 있습니다. reconciliation은 timeout 뒤 FAILED로 전환하지만 동일 command의 실제 broker delivery 여부를 증명하거나 자동 재발행하지 않습니다. TLS/ACL, outbox와 multi-instance coordination도 현재 범위에 포함하지 않습니다.
 
 ACK/status Subscriber는 QoS 1으로 `animalguard/devices/+/acks`와 `animalguard/devices/+/status`를 구독합니다. ACK는 commandId, deviceId, status와 상태에 맞는 timestamp 정확히 하나만 허용하고 status 보고는 deviceId, status, reportedAt, firmwareVersion 정확히 네 필드만 허용합니다. unknown field, 잘못된 timestamp field, timezone 없는 시각과 topic/payload/DB deviceId 불일치는 상태 변경 전에 거절합니다.
 

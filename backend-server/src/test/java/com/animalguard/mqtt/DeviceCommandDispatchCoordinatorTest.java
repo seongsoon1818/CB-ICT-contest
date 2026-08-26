@@ -8,6 +8,7 @@ import com.animalguard.domain.DeviceCommandStatus;
 import com.animalguard.domain.DeviceCommandType;
 import com.animalguard.repository.DeviceCommandRepository;
 import com.animalguard.service.ActuationPreflightService;
+import com.animalguard.service.ManualCommandPreflightService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
@@ -27,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class DeviceCommandDispatchCoordinatorTest {
@@ -36,6 +38,7 @@ class DeviceCommandDispatchCoordinatorTest {
 
     private final DeviceCommandRepository repository = mock(DeviceCommandRepository.class);
     private final ActuationPreflightService preflightService = mock(ActuationPreflightService.class);
+    private final ManualCommandPreflightService manualPreflightService = mock(ManualCommandPreflightService.class);
     private final ObjectMapper objectMapper = JsonMapper.builder()
             .findAndAddModules()
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
@@ -43,6 +46,7 @@ class DeviceCommandDispatchCoordinatorTest {
     private final DeviceCommandDispatchCoordinator coordinator = new DeviceCommandDispatchCoordinator(
             repository,
             preflightService,
+            manualPreflightService,
             objectMapper,
             Clock.fixed(NOW, ZoneOffset.UTC),
             new DirectTransactionOperations()
@@ -67,6 +71,52 @@ class DeviceCommandDispatchCoordinatorTest {
                 .contains("\"durationMs\":2000");
         assertThat(command.getStatus()).isEqualTo(DeviceCommandStatus.PUBLISHED);
         assertThat(command.getPublishedAt()).isEqualTo(NOW);
+        verifyNoInteractions(manualPreflightService);
+    }
+
+    @Test
+    void preparesManualRotationWithNullEventAndDuration() {
+        DeviceCommand command = manualCommand(
+                "manual-15356786-9588-4db4-a0fe-f8acd6300868",
+                DeviceCommandType.ROTATE_CAMERA_LEFT,
+                NOW.plusSeconds(5)
+        );
+        when(repository.findByCommandId(command.getCommandId())).thenReturn(Optional.of(command));
+        when(manualPreflightService.blockersForDispatch(
+                DeviceCommandType.ROTATE_CAMERA_LEFT,
+                "pi-001"
+        )).thenReturn(List.of());
+
+        Optional<PreparedMqttCommand> result = coordinator.prepare(command.getCommandId());
+
+        assertThat(result).isPresent();
+        assertThat(new String(result.orElseThrow().payload(), java.nio.charset.StandardCharsets.UTF_8))
+                .contains("\"eventId\":null")
+                .contains("\"source\":\"MANUAL\"")
+                .contains("\"command\":\"ROTATE_CAMERA_LEFT\"")
+                .contains("\"durationMs\":null")
+                .contains("\"reason\":\"USER_REQUEST\"");
+        assertThat(command.getStatus()).isEqualTo(DeviceCommandStatus.PUBLISHED);
+        verifyNoInteractions(preflightService);
+    }
+
+    @Test
+    void leavesManualCommandCreatedWhenSourceSpecificRecheckIsBlocked() {
+        DeviceCommand command = manualCommand(
+                "manual-15356786-9588-4db4-a0fe-f8acd6300869",
+                DeviceCommandType.STOP_DETERRENT,
+                NOW.plusSeconds(5)
+        );
+        when(repository.findByCommandId(command.getCommandId())).thenReturn(Optional.of(command));
+        when(manualPreflightService.blockersForDispatch(
+                DeviceCommandType.STOP_DETERRENT,
+                "pi-001"
+        )).thenReturn(List.of(ActuationBlocker.OPERATOR_API_DISABLED));
+
+        assertThat(coordinator.prepare(command.getCommandId())).isEmpty();
+
+        assertThat(command.getStatus()).isEqualTo(DeviceCommandStatus.CREATED);
+        verifyNoInteractions(preflightService);
     }
 
     @Test
@@ -103,7 +153,7 @@ class DeviceCommandDispatchCoordinatorTest {
 
         assertThat(coordinator.prepare("command-published")).isEmpty();
 
-        org.mockito.Mockito.verifyNoInteractions(preflightService);
+        verifyNoInteractions(preflightService, manualPreflightService);
     }
 
     @Test
@@ -163,6 +213,25 @@ class DeviceCommandDispatchCoordinatorTest {
                 DeviceCommandType.SOUND_ALERT,
                 2_000,
                 "FIRST_ANIMAL_DETECTION",
+                issuedAt,
+                expiresAt
+        );
+    }
+
+    private DeviceCommand manualCommand(
+            String commandId,
+            DeviceCommandType commandType,
+            Instant expiresAt
+    ) {
+        Instant issuedAt = NOW.minusSeconds(5);
+        return new DeviceCommand(
+                commandId,
+                null,
+                "pi-001",
+                DeviceCommandSource.MANUAL,
+                commandType,
+                null,
+                "USER_REQUEST",
                 issuedAt,
                 expiresAt
         );

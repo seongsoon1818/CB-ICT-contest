@@ -41,7 +41,7 @@ Manual example:
 
 ~~~json
 {
-  "commandId": "command-002",
+  "commandId": "manual-15356786-9588-4db4-a0fe-f8acd6300868",
   "eventId": null,
   "deviceId": "pi-001",
   "source": "MANUAL",
@@ -135,7 +135,7 @@ Failure or expiry can occur before execution:
 - CREATED or PUBLISHED → EXPIRED when the expiry time passes before execution.
 - EXECUTED, FAILED, and EXPIRED are terminal for that command.
 
-Before dispatch, Backend applies the source-appropriate policy, target mapping, expiry, and safety checks. Automatic commands require a real Detection Event. Manual commands require an authenticated user request and no Detection Event. MQTT itself does not bypass Backend policy.
+Before dispatch, Backend applies the source-appropriate policy, target mapping, expiry, and safety checks. Automatic commands require a real Detection Event. Manual commands require a valid operator token at creation, an enabled operator API at dispatch, and no Detection Event. MQTT itself does not bypass Backend policy.
 
 For the MVP Publisher, `PUBLISHED` means dispatch was authorized and the publish attempt began; it does not prove broker delivery. Backend commits `PUBLISHED` before invoking the MQTT client so an immediate ACK cannot observe a `CREATED` row. An immediate publish failure is recorded as `FAILED`. A process crash after the commit but before or during the MQTT call can leave `PUBLISHED` without delivery; reconciliation for that crash window is a follow-up requirement.
 
@@ -148,9 +148,9 @@ For the MVP Publisher, `PUBLISHED` means dispatch was authorized and the publish
 - Backend uses optimistic locking for concurrent command-state writers. A database optimistic-lock conflict must not trigger another MQTT publish; the handler reloads state and treats the same or already-advanced result as idempotent, while conflicting terminal state is rejected and logged.
 - Commands are not retained. The retain policy for status and sensor events may be finalized with the broker deployment, but it must not change command idempotency or expiry semantics.
 - ACK, status, and sensor-event timestamps include timezones; Backend stores server receipt times for audit.
-- Authentication, authorization, TLS, and broker ACL configuration are deployment concerns and are not implemented in Phase 0.
+- The manual Backend API has a shared operator-token boundary. User identity, role-based authorization, TLS, and broker ACL configuration remain deployment or follow-up concerns.
 
-STOP_DETERRENT is a safety-stop command. Automatic STOP creation bypasses ACTUATION_DISABLED, RISK_POLICY_UNCONFIRMED, and COOLDOWN_ACTIVE, while device target mapping, MQTT transport readiness, commandId, and expiry remain required. The public actuation preflight endpoint still describes general actuation-start readiness. The Backend Publisher preserves this reduced STOP gate when it rechecks dispatch safety.
+STOP_DETERRENT is a safety-stop command. Automatic STOP creation bypasses ACTUATION_DISABLED, RISK_POLICY_UNCONFIRMED, and COOLDOWN_ACTIVE, while device target mapping, MQTT transport readiness, commandId, and expiry remain required. Manual STOP additionally requires the operator API and a valid operator token at creation, but also bypasses actuation, risk/response policy, and cooldown. The public actuation preflight endpoint still describes general actuation-start readiness. The Backend Publisher preserves the source-appropriate reduced STOP gate when it rechecks dispatch safety.
 
 Backend transport readiness requires an enabled MQTT client, an active broker connection, and successful ACK and status subscriptions. It resets both subscription markers on connection loss and re-subscribes after reconnect. A connection without both SUBACK results is not actuation-ready.
 

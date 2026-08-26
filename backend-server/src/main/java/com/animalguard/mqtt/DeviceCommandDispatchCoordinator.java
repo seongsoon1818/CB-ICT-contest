@@ -6,6 +6,7 @@ import com.animalguard.domain.DeviceCommandSource;
 import com.animalguard.domain.DeviceCommandStatus;
 import com.animalguard.repository.DeviceCommandRepository;
 import com.animalguard.service.ActuationPreflightService;
+import com.animalguard.service.ManualCommandPreflightService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ public class DeviceCommandDispatchCoordinator {
 
     private final DeviceCommandRepository repository;
     private final ActuationPreflightService preflightService;
+    private final ManualCommandPreflightService manualPreflightService;
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final TransactionOperations transactionOperations;
@@ -55,16 +57,21 @@ public class DeviceCommandDispatchCoordinator {
         }
 
         DeviceCommand command = found.orElseThrow();
-        if (command.getStatus() != DeviceCommandStatus.CREATED
-                || command.getSource() != DeviceCommandSource.AUTOMATIC) {
+        if (command.getStatus() != DeviceCommandStatus.CREATED) {
             return Optional.empty();
         }
 
         Instant now = clock.instant();
-        List<ActuationBlocker> blockers = preflightService.blockersForAutomaticDispatch(
-                command.getCommandType(),
-                command.getDeviceId()
-        );
+        List<ActuationBlocker> blockers = switch (command.getSource()) {
+            case AUTOMATIC -> preflightService.blockersForAutomaticDispatch(
+                    command.getCommandType(),
+                    command.getDeviceId()
+            );
+            case MANUAL -> manualPreflightService.blockersForDispatch(
+                    command.getCommandType(),
+                    command.getDeviceId()
+            );
+        };
         if (!now.isBefore(command.getExpiresAt())) {
             command.markExpired(now, null);
             return Optional.empty();
