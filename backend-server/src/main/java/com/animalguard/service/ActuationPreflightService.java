@@ -36,6 +36,18 @@ public class ActuationPreflightService {
         return List.copyOf(globalBlockers());
     }
 
+    public List<ActuationBlocker> blockersForAutomaticDispatch(
+            DeviceCommandType commandType,
+            String deviceId
+    ) {
+        List<ActuationBlocker> blockers = new ArrayList<>(blockersForAutomaticCommand(commandType));
+        if (!deviceControlProperties.cameraDeviceMappings().isEmpty()
+                && !deviceControlProperties.cameraDeviceMappings().containsValue(deviceId)) {
+            blockers.add(ActuationBlocker.CAMERA_UNMAPPED);
+        }
+        return List.copyOf(blockers);
+    }
+
     private List<ActuationBlocker> globalBlockers() {
         List<ActuationBlocker> blockers = new ArrayList<>();
         if (!actuationProperties.enabled()) {

@@ -22,11 +22,26 @@ spring:
     properties:
       hibernate:
         format_sql: true
+  task:
+    scheduling:
+      pool:
+        size: 1
 
 server:
   port: ${SERVER_PORT:8080}
 
 animalguard:
+  mqtt:
+    enabled: ${MQTT_ENABLED:false}
+    host: ${MQTT_HOST:127.0.0.1}
+    port: ${MQTT_PORT:1883}
+    client-id: ${MQTT_CLIENT_ID:animalguard-backend}
+    username: ${MQTT_USERNAME:}
+    password: ${MQTT_PASSWORD:}
+    connect-timeout: ${MQTT_CONNECT_TIMEOUT:5s}
+    publish-timeout: ${MQTT_PUBLISH_TIMEOUT:5s}
+    dispatch-interval: ${MQTT_DISPATCH_INTERVAL:500ms}
+    dispatch-batch-size: ${MQTT_DISPATCH_BATCH_SIZE:20}
   observation:
     # MVP verification defaults; production values require operational tuning.
     persistence-threshold: ${ANIMAL_PERSISTENCE_THRESHOLD:5s}
