@@ -74,7 +74,7 @@ PRESENT
 
 ## 위험도 설정
 
-`application.yml`의 `animalguard.risk`에서 class score, 탐지 수 threshold와 점수, confidence threshold와 점수, LOW/MEDIUM/HIGH 경계를 설정합니다. 설정 범위를 벗어난 값이나 역전된 위험도 경계는 애플리케이션 시작 시 거부됩니다. 이 값들은 현재 저장·응답하는 RiskDecision만 바꾸며 event별 command eligibility를 gate하지 않습니다. 운영 기본 class score는 현재 `MAGPIE: 30`, `UNKNOWN: 0`만 정의하며 다른 유해동물의 운영 점수는 확정하지 않았습니다. 따라서 이슈 #5에서 점수만 확정해도 현재 작동 조건은 달라지지 않으며, risk/class 기반 작동 조건은 별도 response policy 결정이 필요합니다.
+`application.yml`의 `animalguard.risk`에서 class score, 탐지 수 threshold와 점수, confidence threshold와 점수, LOW/MEDIUM/HIGH 경계를 설정합니다. 설정 범위를 벗어난 값이나 역전된 위험도 경계는 애플리케이션 시작 시 거부됩니다. 이 값들은 저장·응답하는 RiskDecision을 계산하며, response policy의 `minimum-risk-level`을 명시한 경우에만 그 결과 level이 eligibility gate로도 사용됩니다. 운영 기본 class score는 현재 `MAGPIE: 30`, `UNKNOWN: 0`만 정의하며 다른 유해동물의 운영 점수는 확정하지 않았습니다. 따라서 이슈 #5에서 점수만 확정해도 자동 대응을 허용하지 않으며 response allowlist·threshold와 두 global enable gate를 별도로 확인해야 합니다.
 
 ## 모델 독립 automatic response eligibility
 
