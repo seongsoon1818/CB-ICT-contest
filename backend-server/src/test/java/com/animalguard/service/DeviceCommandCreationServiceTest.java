@@ -50,10 +50,11 @@ class DeviceCommandCreationServiceTest {
 
     @Test
     void suppressesCommandWhenActuationIsDisabledBeforeRepositoryAccess() {
-        CommandDecision decision = service(properties, false, true, true).createIfAllowed(
+        CommandDecision decision = service(properties, false, true, true).createAutomaticIfAllowed(
                 event("event-disabled"),
                 "cam-001",
                 DeviceCommandType.SOUND_ALERT,
+                2_000,
                 "risk reason"
         );
 
@@ -63,10 +64,11 @@ class DeviceCommandCreationServiceTest {
 
     @Test
     void suppressesCommandWhenRiskPolicyIsUnconfirmedBeforeRepositoryAccess() {
-        CommandDecision decision = service(properties, true, false, true).createIfAllowed(
+        CommandDecision decision = service(properties, true, false, true).createAutomaticIfAllowed(
                 event("event-policy"),
                 "cam-001",
                 DeviceCommandType.SOUND_ALERT,
+                2_000,
                 "risk reason"
         );
 
@@ -78,10 +80,11 @@ class DeviceCommandCreationServiceTest {
     void suppressesCommandWhenCameraDeviceMappingIsEmptyBeforeCameraLookup() {
         DeviceControlProperties emptyMappings = properties(Map.of());
 
-        CommandDecision decision = service(emptyMappings, true, true, true).createIfAllowed(
+        CommandDecision decision = service(emptyMappings, true, true, true).createAutomaticIfAllowed(
                 event("event-empty-mappings"),
                 "cam-001",
                 DeviceCommandType.SOUND_ALERT,
+                2_000,
                 "risk reason"
         );
 
@@ -91,10 +94,11 @@ class DeviceCommandCreationServiceTest {
 
     @Test
     void suppressesCommandWhenMqttPublisherIsNotReadyBeforeRepositoryAccess() {
-        CommandDecision decision = service(properties, true, true, false).createIfAllowed(
+        CommandDecision decision = service(properties, true, true, false).createAutomaticIfAllowed(
                 event("event-transport"),
                 "cam-001",
                 DeviceCommandType.SOUND_ALERT,
+                2_000,
                 "risk reason"
         );
 
@@ -104,10 +108,11 @@ class DeviceCommandCreationServiceTest {
 
     @Test
     void returnsEveryGlobalBlockerBeforeRepositoryAccess() {
-        CommandDecision decision = service(properties, false, false, false).createIfAllowed(
+        CommandDecision decision = service(properties, false, false, false).createAutomaticIfAllowed(
                 event("event-global-blockers"),
                 "cam-001",
                 DeviceCommandType.SOUND_ALERT,
+                2_000,
                 "risk reason"
         );
 
@@ -121,10 +126,11 @@ class DeviceCommandCreationServiceTest {
 
     @Test
     void suppressesCommandForUnmappedCamera() {
-        CommandDecision decision = service.createIfAllowed(
+        CommandDecision decision = service.createAutomaticIfAllowed(
                 event("event-unmapped"),
                 "cam-unknown",
                 DeviceCommandType.SOUND_ALERT,
+                2_000,
                 "risk reason"
         );
 
@@ -136,16 +142,35 @@ class DeviceCommandCreationServiceTest {
     }
 
     @Test
+    void suppressesSafetyStopForUnmappedCamera() {
+        CommandDecision decision = service(properties, false, false, true).createAutomaticIfAllowed(
+                event("event-unmapped-stop"),
+                "cam-unknown",
+                DeviceCommandType.STOP_DETERRENT,
+                null,
+                "ANIMAL_DISAPPEARED"
+        );
+
+        assertThat(decision.outcome()).isEqualTo(CommandOutcome.SUPPRESSED);
+        assertThat(decision.blockers()).containsExactly(ActuationBlocker.CAMERA_UNMAPPED);
+        verifyNoInteractions(deviceCommandRepository);
+    }
+
+    @Test
     void createsCommandForMappedCameraWhenDeviceIsIdle() {
-        when(deviceCommandRepository.findTopByDeviceIdOrderByCreatedAtDesc("pi-001"))
+        when(deviceCommandRepository.findTopByDeviceIdAndSourceOrderByCreatedAtDesc(
+                "pi-001",
+                DeviceCommandSource.AUTOMATIC
+        ))
                 .thenReturn(Optional.empty());
         when(deviceCommandRepository.save(any(DeviceCommand.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        CommandDecision decision = service.createIfAllowed(
+        CommandDecision decision = service.createAutomaticIfAllowed(
                 event("event-idle"),
                 "cam-001",
                 DeviceCommandType.DETERRENT_FULL,
+                7_000,
                 "CLASS_SCORE_MAGPIE +30"
         );
 
@@ -161,7 +186,7 @@ class DeviceCommandCreationServiceTest {
         assertThat(command.getStatus()).isEqualTo(DeviceCommandStatus.CREATED);
         assertThat(command.getSource()).isEqualTo(DeviceCommandSource.AUTOMATIC);
         assertThat(command.getCommandType()).isEqualTo(DeviceCommandType.DETERRENT_FULL);
-        assertThat(command.getDurationMs()).isEqualTo(5_000);
+        assertThat(command.getDurationMs()).isEqualTo(7_000);
         assertThat(command.getReason()).isEqualTo("CLASS_SCORE_MAGPIE +30");
         assertThat(command.getIssuedAt()).isEqualTo(NOW);
         assertThat(command.getExpiresAt()).isEqualTo(NOW.plusSeconds(10));
@@ -169,15 +194,19 @@ class DeviceCommandCreationServiceTest {
 
     @Test
     void createsAutomaticStopWithoutDurationWhenCallerRequestsIt() {
-        when(deviceCommandRepository.findTopByDeviceIdOrderByCreatedAtDesc("pi-001"))
+        when(deviceCommandRepository.findTopByDeviceIdAndSourceOrderByCreatedAtDesc(
+                "pi-001",
+                DeviceCommandSource.AUTOMATIC
+        ))
                 .thenReturn(Optional.empty());
         when(deviceCommandRepository.save(any(DeviceCommand.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.createIfAllowed(
+        service.createAutomaticIfAllowed(
                 event("event-stop"),
                 "cam-001",
                 DeviceCommandType.STOP_DETERRENT,
+                null,
                 "ANIMAL_DISAPPEARED"
         );
 
@@ -190,15 +219,61 @@ class DeviceCommandCreationServiceTest {
     }
 
     @Test
+    void stopBypassesDisabledActuationRiskPolicyAndCooldown() {
+        DeviceCommand latest = commandCreatedAt(NOW.minusSeconds(1));
+        when(deviceCommandRepository.findTopByDeviceIdAndSourceOrderByCreatedAtDesc(
+                "pi-001",
+                DeviceCommandSource.AUTOMATIC
+        )).thenReturn(Optional.of(latest));
+        when(deviceCommandRepository.save(any(DeviceCommand.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        CommandDecision decision = service(properties, false, false, true).createAutomaticIfAllowed(
+                event("event-stop-safety"),
+                "cam-001",
+                DeviceCommandType.STOP_DETERRENT,
+                null,
+                "ANIMAL_DISAPPEARED"
+        );
+
+        assertThat(decision.outcome()).isEqualTo(CommandOutcome.CREATED);
+    }
+
+    @Test
+    void allowsSemanticTransitionDuringCooldown() {
+        DeviceCommand latest = commandCreatedAt(NOW.minusSeconds(1));
+        when(deviceCommandRepository.findTopByDeviceIdAndSourceOrderByCreatedAtDesc(
+                "pi-001",
+                DeviceCommandSource.AUTOMATIC
+        )).thenReturn(Optional.of(latest));
+        when(deviceCommandRepository.save(any(DeviceCommand.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        CommandDecision decision = service.createAutomaticIfAllowed(
+                event("event-semantic-transition"),
+                "cam-001",
+                DeviceCommandType.DETERRENT_FULL,
+                5_000,
+                "PERSISTENT_ANIMAL_DETECTION"
+        );
+
+        assertThat(decision.outcome()).isEqualTo(CommandOutcome.CREATED);
+    }
+
+    @Test
     void suppressesCommandWhileLatestCommandIsWithinCooldown() {
         DeviceCommand latest = commandCreatedAt(NOW.minusSeconds(19));
-        when(deviceCommandRepository.findTopByDeviceIdOrderByCreatedAtDesc("pi-001"))
+        when(deviceCommandRepository.findTopByDeviceIdAndSourceOrderByCreatedAtDesc(
+                "pi-001",
+                DeviceCommandSource.AUTOMATIC
+        ))
                 .thenReturn(Optional.of(latest));
 
-        CommandDecision decision = service.createIfAllowed(
+        CommandDecision decision = service.createAutomaticIfAllowed(
                 event("event-cooldown"),
                 "cam-001",
                 DeviceCommandType.SOUND_ALERT,
+                2_000,
                 "risk reason"
         );
 
@@ -212,15 +287,19 @@ class DeviceCommandCreationServiceTest {
     @Test
     void createsCommandAtCooldownBoundary() {
         DeviceCommand latest = commandCreatedAt(NOW.minusSeconds(20));
-        when(deviceCommandRepository.findTopByDeviceIdOrderByCreatedAtDesc("pi-001"))
+        when(deviceCommandRepository.findTopByDeviceIdAndSourceOrderByCreatedAtDesc(
+                "pi-001",
+                DeviceCommandSource.AUTOMATIC
+        ))
                 .thenReturn(Optional.of(latest));
         when(deviceCommandRepository.save(any(DeviceCommand.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        CommandDecision decision = service.createIfAllowed(
+        CommandDecision decision = service.createAutomaticIfAllowed(
                 event("event-boundary"),
                 "cam-001",
                 DeviceCommandType.SOUND_ALERT,
+                2_000,
                 "risk reason"
         );
 

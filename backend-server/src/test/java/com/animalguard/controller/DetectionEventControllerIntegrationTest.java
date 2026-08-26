@@ -1,6 +1,7 @@
 package com.animalguard.controller;
 
 import com.animalguard.repository.AnimalDetectionRepository;
+import com.animalguard.repository.AnimalObservationStateRepository;
 import com.animalguard.repository.DeviceCommandRepository;
 import com.animalguard.repository.DetectionEventRepository;
 import com.animalguard.repository.RiskDecisionRepository;
@@ -61,6 +62,9 @@ class DetectionEventControllerIntegrationTest {
     private DeviceCommandRepository deviceCommandRepository;
 
     @Autowired
+    private AnimalObservationStateRepository observationStateRepository;
+
+    @Autowired
     private MutableClock clock;
 
     @Autowired
@@ -71,6 +75,7 @@ class DetectionEventControllerIntegrationTest {
         clock.set(TEST_NOW);
         transportReadiness.setReady(true);
         deviceCommandRepository.deleteAll();
+        observationStateRepository.deleteAll();
         riskDecisionRepository.deleteAll();
         detectionEventRepository.deleteAll();
     }
@@ -86,8 +91,8 @@ class DetectionEventControllerIntegrationTest {
                 .andExpect(jsonPath("$.eventId", is(EVENT_ID)))
                 .andExpect(jsonPath("$.riskScore", is(45)))
                 .andExpect(jsonPath("$.riskLevel", is("MEDIUM")))
-                .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")))
-                .andExpect(jsonPath("$.commandBlockers").isEmpty())
+                .andExpect(jsonPath("$.commandOutcome", is("SUPPRESSED")))
+                .andExpect(jsonPath("$.commandBlockers", hasItem("MQTT_PUBLISHER_NOT_READY")))
                 .andExpect(jsonPath("$.commandId").doesNotExist());
 
         assertThat(detectionEventRepository.count()).isEqualTo(1);
@@ -102,21 +107,39 @@ class DetectionEventControllerIntegrationTest {
     }
 
     @Test
-    void doesNotSelectAutomaticCommandBeforeObservationPolicyExists() throws Exception {
+    void selectsFirstDetectionSoundAlertRegardlessOfRiskLevel() throws Exception {
         mockMvc.perform(post("/api/v1/detection/events")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(highRiskPayload(EVENT_ID)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.riskScore", is(70)))
                 .andExpect(jsonPath("$.riskLevel", is("HIGH")))
-                .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")))
+                .andExpect(jsonPath("$.commandOutcome", is("CREATED")))
                 .andExpect(jsonPath("$.commandBlockers").isEmpty())
-                .andExpect(jsonPath("$.commandId").doesNotExist());
+                .andExpect(jsonPath("$.commandId").isNotEmpty());
 
         assertThat(detectionEventRepository.count()).isEqualTo(1);
         assertThat(animalDetectionRepository.count()).isEqualTo(3);
         assertThat(riskDecisionRepository.count()).isEqualTo(1);
-        assertThat(deviceCommandRepository.count()).isZero();
+        assertThat(deviceCommandRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void selectsFirstDetectionSoundAlertForAcceptedLowConfidenceUnknownDetection() throws Exception {
+        mockMvc.perform(post("/api/v1/detection/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(lowConfidenceUnknownPayload(EVENT_ID)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.riskScore", is(0)))
+                .andExpect(jsonPath("$.riskLevel", is("LOW")))
+                .andExpect(jsonPath("$.commandOutcome", is("CREATED")))
+                .andExpect(jsonPath("$.commandBlockers").isEmpty())
+                .andExpect(jsonPath("$.commandId").isNotEmpty());
+
+        assertThat(detectionEventRepository.count()).isEqualTo(1);
+        assertThat(animalDetectionRepository.count()).isEqualTo(1);
+        assertThat(riskDecisionRepository.count()).isEqualTo(1);
+        assertThat(deviceCommandRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -136,6 +159,30 @@ class DetectionEventControllerIntegrationTest {
         assertThat(detectionEventRepository.count()).isEqualTo(1);
         assertThat(animalDetectionRepository.count()).isZero();
         assertThat(deviceCommandRepository.count()).isZero();
+    }
+
+    @Test
+    void storesRiskDecisionButDoesNotChangeObservationForStaleCapturedAt() throws Exception {
+        String currentEventId = "15356786-9588-4db4-a0fe-f8acd6300869";
+        String staleEventId = "15356786-9588-4db4-a0fe-f8acd6300870";
+
+        mockMvc.perform(post("/api/v1/detection/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(oneDetectionPayloadAt(currentEventId, "2026-08-24T08:00:01Z")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.commandOutcome", is("CREATED")));
+
+        mockMvc.perform(post("/api/v1/detection/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(emptyDetectionsPayloadAt(staleEventId, "2026-08-24T08:00:00Z")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")));
+
+        assertThat(detectionEventRepository.count()).isEqualTo(2);
+        assertThat(riskDecisionRepository.count()).isEqualTo(2);
+        assertThat(deviceCommandRepository.count()).isEqualTo(1);
+        assertThat(observationStateRepository.findByCameraId("cam-001").orElseThrow()
+                .getLastProcessedCapturedAt()).isEqualTo(Instant.parse("2026-08-24T08:00:01Z"));
     }
 
     @Test
@@ -330,11 +377,15 @@ class DetectionEventControllerIntegrationTest {
     }
 
     private String oneDetectionPayload(String eventId) {
+        return oneDetectionPayloadAt(eventId, "2026-08-24T08:00:00Z");
+    }
+
+    private String oneDetectionPayloadAt(String eventId, String capturedAt) {
         return """
                 {
                   "eventId": "%s",
                   "cameraId": "cam-001",
-                  "capturedAt": "2026-08-24T08:00:00Z",
+                  "capturedAt": "%s",
                   "image": {"width": 1280, "height": 720},
                   "model": {"detectorVersion": "animal-detector-v1", "classifierVersion": null},
                   "detections": [
@@ -348,11 +399,26 @@ class DetectionEventControllerIntegrationTest {
                     }
                   ]
                 }
-                """.formatted(eventId);
+                """.formatted(eventId, capturedAt);
     }
 
     private String highRiskPayload(String eventId) {
         return highRiskPayload(eventId, "cam-001");
+    }
+
+    private String lowConfidenceUnknownPayload(String eventId) {
+        return """
+                {
+                  "eventId": "%s",
+                  "cameraId": "cam-001",
+                  "capturedAt": "2026-08-24T08:00:00Z",
+                  "image": {"width": 1280, "height": 720},
+                  "model": {"detectorVersion": "animal-detector-v1", "classifierVersion": null},
+                  "detections": [
+                    {"detectionId": "det-001", "trackId": null, "classCode": "UNKNOWN", "detectionConfidence": 0.01, "classificationConfidence": null, "bbox": {"x": 100, "y": 200, "width": 50, "height": 60}}
+                  ]
+                }
+                """.formatted(eventId);
     }
 
     private String highRiskPayload(String eventId, String cameraId) {
@@ -373,16 +439,20 @@ class DetectionEventControllerIntegrationTest {
     }
 
     private String emptyDetectionsPayload(String eventId) {
+        return emptyDetectionsPayloadAt(eventId, "2026-08-24T08:00:00Z");
+    }
+
+    private String emptyDetectionsPayloadAt(String eventId, String capturedAt) {
         return """
                 {
                   "eventId": "%s",
                   "cameraId": "cam-001",
-                  "capturedAt": "2026-08-24T08:00:00Z",
+                  "capturedAt": "%s",
                   "image": {"width": 1280, "height": 720},
                   "model": {"detectorVersion": "animal-detector-v1", "classifierVersion": null},
                   "detections": []
                 }
-                """.formatted(eventId);
+                """.formatted(eventId, capturedAt);
     }
 
     private String payloadWithoutDetections(String eventId) {

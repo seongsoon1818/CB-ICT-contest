@@ -3,6 +3,7 @@ package com.animalguard.service;
 import com.animalguard.config.ActuationProperties;
 import com.animalguard.config.DeviceControlProperties;
 import com.animalguard.domain.ActuationBlocker;
+import com.animalguard.domain.DeviceCommandType;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -59,6 +60,22 @@ class ActuationPreflightServiceTest {
         assertThat(preflight.enabled()).isTrue();
         assertThat(preflight.ready()).isTrue();
         assertThat(preflight.blockers()).isEmpty();
+    }
+
+    @Test
+    void stopBypassesActuationAndRiskPolicyBlockers() {
+        assertThat(service(false, false, mapping(), true)
+                .blockersForAutomaticCommand(DeviceCommandType.STOP_DETERRENT)).isEmpty();
+    }
+
+    @Test
+    void stopStillRequiresMappingAndTransportReadiness() {
+        assertThat(service(false, false, Map.of(), false)
+                .blockersForAutomaticCommand(DeviceCommandType.STOP_DETERRENT))
+                .containsExactly(
+                        ActuationBlocker.CAMERA_DEVICE_MAPPING_EMPTY,
+                        ActuationBlocker.MQTT_PUBLISHER_NOT_READY
+                );
     }
 
     @Test

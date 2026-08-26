@@ -11,6 +11,12 @@ spring:
     database-platform: org.hibernate.dialect.H2Dialect
 
 animalguard:
+  observation:
+    persistence-threshold: 5s
+    absence-grace: 2s
+    continuity-timeout: 3s
+    sound-alert-duration: 2s
+    deterrent-full-duration: 5s
   device-control:
     cooldown: 20s
     command-ttl: 10s

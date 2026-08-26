@@ -76,7 +76,7 @@ Allowed source and command combinations:
 | MANUAL | ROTATE_CAMERA_RIGHT | null | Camera servo 5 degrees right |
 | MANUAL | STOP_DETERRENT | null | Deterrent motor and speaker off |
 
-Animal-specific commands such as DETERRENT_MAGPIE, DETERRENT_BOAR, or DETERRENT_DEER are forbidden. Backend response policy may choose a semantic action from model and observation state in a later phase, but the MQTT vocabulary expresses only actions the Raspberry Pi performs.
+Animal-specific commands such as DETERRENT_MAGPIE, DETERRENT_BOAR, or DETERRENT_DEER are forbidden. 현재 Backend는 모든 accepted detection을 하나의 aggregate presence로 처리해 SOUND_ALERT → DETERRENT_FULL → STOP_DETERRENT를 선택합니다. classCode별 response policy는 이슈 #5 이후 별도 확장하며 MQTT vocabulary는 Raspberry Pi가 수행할 semantic action만 표현합니다.
 
 ## ACK payload
 
@@ -150,4 +150,6 @@ For the MVP Publisher, `PUBLISHED` means dispatch was authorized and the publish
 - ACK, status, and sensor-event timestamps include timezones; Backend stores server receipt times for audit.
 - Authentication, authorization, TLS, and broker ACL configuration are deployment concerns and are not implemented in Phase 0.
 
-STOP_DETERRENT is a safety-stop command. A follow-up Publisher/manual API design must decide whether general actuation blockers such as ACTUATION_DISABLED, RISK_POLICY_UNCONFIRMED, and COOLDOWN_ACTIVE may block STOP. Device target mapping, MQTT transport readiness, commandId, and expiry are still required. This v1 alignment does not bypass the existing preflight or define the final STOP dispatch policy.
+STOP_DETERRENT is a safety-stop command. Automatic STOP creation bypasses ACTUATION_DISABLED, RISK_POLICY_UNCONFIRMED, and COOLDOWN_ACTIVE, while device target mapping, MQTT transport readiness, commandId, and expiry remain required. The public actuation preflight endpoint still describes general actuation-start readiness. The follow-up Publisher must preserve this reduced STOP gate when it rechecks dispatch safety.
+
+Observation command markers mean only that a DeviceCommand row was created. They do not prove PUBLISHED, ACKNOWLEDGED, EXECUTED, GPIO activation, or GPIO stop. Reconciliation after FAILED or EXPIRED and the no-event case where no empty Detection Event arrives are follow-up safety responsibilities; the current Backend does not add a scheduler.

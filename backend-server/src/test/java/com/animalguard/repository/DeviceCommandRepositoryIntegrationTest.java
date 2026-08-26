@@ -1,5 +1,6 @@
 package com.animalguard.repository;
 
+import com.animalguard.domain.DeviceCommandSource;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -85,7 +86,10 @@ class DeviceCommandRepositoryIntegrationTest {
 
         entityManager.clear();
         assertThat(deviceCommandRepository.findById(legacyCommandId)).isEmpty();
-        assertThat(deviceCommandRepository.findTopByDeviceIdOrderByCreatedAtDesc("pi-legacy"))
+        assertThat(deviceCommandRepository.findTopByDeviceIdAndSourceOrderByCreatedAtDesc(
+                "pi-legacy",
+                DeviceCommandSource.AUTOMATIC
+        ))
                 .isEmpty();
     }
 }
