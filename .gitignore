@@ -47,6 +47,8 @@ docs/contracts/*
 !docs/contracts/detection-event-v1.md
 !docs/contracts/detection-event-v1.schema.json
 !docs/contracts/mqtt-v1.md
+!docs/architecture-v1.md
+!docs/SOFTWARE_READY_CHECKLIST.md
 # Existing local-only marker and wrapper exception
 /change_log/
 부품.md

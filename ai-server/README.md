@@ -146,3 +146,11 @@ pytest
 python -m pytest
 python -c "from app.main import app; print(app.title)"
 ```
+
+저장소 Mock E2E는 `MOCK_RESULT=detected`와 `MOCK_RESULT=empty`인 AI Server 두 개를 격리 port에 기동해 같은 `/api/v1/analyze` multipart 계약으로 positive/empty observation을 만듭니다.
+
+```bash
+bash scripts/e2e/animalguard_mock_e2e.sh
+```
+
+이 경로는 JPEG decode, MockInference, Backend 전달과 후속 MQTT 상태 전이를 검증하지만 model bundle, 실제 runtime/output adapter, class list 또는 실제 추론 품질을 검증하지 않습니다. 실제 model 연결 전에는 `models/README.md`와 `docs/SOFTWARE_READY_CHECKLIST.md`의 입력을 모두 확정해야 하며 model mode 실패를 Mock으로 fallback하지 않습니다.

@@ -134,12 +134,15 @@ def _build_client(settings: Settings, handler: CommandHandler) -> mqtt.Client:
         message: mqtt.MQTTMessage,
     ) -> None:
         del userdata
-        publish_ack = lambda ack: _publish_json(
-            connected_client,
-            ack_topic(settings.device_id),
-            ack,
-            retain=False,
-        )
+
+        def publish_ack(ack: Mapping[str, Any]) -> None:
+            _publish_json(
+                connected_client,
+                ack_topic(settings.device_id),
+                ack,
+                retain=False,
+            )
+
         expected_topic = command_topic(settings.device_id)
         if message.topic != expected_topic or message.qos != QOS or message.retain:
             handler.reject(

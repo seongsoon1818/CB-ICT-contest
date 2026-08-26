@@ -137,7 +137,7 @@ cooldown과 command TTL은 모두 양수여야 하고 command TTL은 cooldown보
 
 `IDLE`에서는 `AUTOMATIC`/`CREATED` command를 저장하고 응답에 `commandId`를 포함합니다. 새 command는 호출자가 선택한 semantic type과 원본 `reason`, 서버 Clock의 `issuedAt`, `issuedAt + commandTtl`인 `expiresAt`을 저장하며 DB record 생성 시각 `createdAt`은 현재 MVP에서 `issuedAt`과 같습니다. reason이 500자를 넘으면 truncate하지 않고 생성을 거절합니다. `COOLDOWN`에서는 `SUPPRESSED/COOLDOWN_ACTIVE`, 매핑되지 않은 cameraId에서는 `SUPPRESSED/CAMERA_UNMAPPED`를 반환하고 DeviceCommand를 만들지 않습니다. cameraId를 deviceId로 fallback하지 않습니다.
 
-`animal_observation_states`는 camera별 IDLE/PRESENT와 session timestamp, CREATED command marker를 저장합니다. marker는 실제 publish, ACK 또는 GPIO 실행을 뜻하지 않습니다. ACK에서 FAILED/EXPIRED가 된 뒤 marker를 재설정하는 reconciliation은 아직 없습니다. cooldown의 source of truth는 `device_commands.created_at`이며 observation duration과 달리 Backend Clock 기준입니다.
+`animal_observation_states`는 camera별 IDLE/PRESENT와 session timestamp, CREATED command marker를 저장합니다. marker는 실제 publish, ACK 또는 GPIO 실행을 뜻하지 않습니다. scheduler는 FAILED/EXPIRED marker를 clear해 다음 event가 재평가할 수 있게 하고, PUBLISHED/ACKNOWLEDGED timeout을 FAILED로, 만료된 CREATED를 EXPIRED로 종결합니다. no-event timeout은 full deterrent가 실행된 session이면 STOP을 요청하고 그렇지 않으면 IDLE로 복구합니다. 자동 publish retry는 하지 않습니다. cooldown의 source of truth는 `device_commands.created_at`이며 observation duration과 달리 Backend Clock 기준입니다.
 
 현재 observation gate와 command gate는 단일 Backend 인스턴스에서 전역 fair lock을 transaction 완료까지 유지하며 항상 observation → command 순서로 획득합니다. 따라서 다른 camera/device 판단도 선행 transaction 완료까지 대기합니다. `@Version`은 lost update를 감지하지만 다중 Backend 인스턴스의 완전한 원자성이나 자동 optimistic-lock retry는 제공하지 않습니다.
 
@@ -248,6 +248,12 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 ./gradlew test
 ```
 
+저장소 전체 Mock E2E는 실제 PostgreSQL·Mosquitto와 이 Backend jar를 기동하고 AI MockInference, MQTT Simulator 및 test-only fault proxy를 연결합니다. production endpoint나 transport mode를 추가하지 않으며 fault proxy는 다음 Backend PUBLISH 한 번을 broker 전달 전에 끊어 즉시 실패·marker reconciliation·다음 event 재평가를 결정적으로 검증합니다.
+
+```bash
+bash scripts/e2e/animalguard_mock_e2e.sh
+```
+
 ## 데이터베이스 schema 관리
 
 `src/main/resources/db/migration`의 Flyway migration이 schema 변경의 source of truth입니다. V1은 baseline, V2는 DeviceCommand 전달 lifecycle, V3는 source/manual 계약, V4는 unique cameraId와 optimistic-lock version을 가진 `animal_observation_states`를 추가합니다. V5는 기존 `device_statuses`의 connected, last_seen, temperature와 duplicate deviceId를 보존하면서 operational_status, firmware_version, reported_at, received_at, version을 추가합니다. nullable command marker는 command 실행 lifecycle과 observation lifecycle을 불필요하게 결합하지 않도록 FK를 두지 않습니다. Flyway는 모든 프로필에서 활성화되고 `baseline-on-migrate=false`, `clean-disabled=true`가 기본값입니다.
@@ -292,4 +298,4 @@ ACK Subscriber는 ACK의 의미에 따라 transition method를 호출합니다. 
 
 현재 production code에서 `DeviceCommandCreationService`가 preflight를 통과한 `CREATED`를 만들고, `DeviceCommandDispatcher`와 `DeviceCommandDispatchCoordinator`가 `markPublished`, 자체 만료의 `markExpired`, 즉시 publish 실패의 `markFailed`를 호출합니다. `DeviceCommandAckHandler`는 `markAcknowledged`, `markExecuted`와 장치가 보고한 FAILED/EXPIRED를 실제로 적용합니다. V2 migration은 MQTT 이력이 없는 legacy row를 `EXPIRED`로 전환합니다.
 
-다음 reconciliation PR은 PUBLISHED crash window, PUBLISHED/ACKNOWLEDGED timeout과 FAILED/EXPIRED command의 observation marker를 처리합니다. 현재는 outbox/inbox, publish retry, 다중 Backend 인스턴스, broker 인증/TLS와 장애 복구를 해결하지 않습니다. 실제 GPIO 실행 코드, AI 모델과 classCode별 위험 정책도 구현하지 않습니다.
+`CommandReconciliationScheduler`는 PUBLISHED/ACKNOWLEDGED timeout, 만료된 CREATED, FAILED/EXPIRED observation marker, no-event watchdog과 선택적 repeat-deterrent marker release를 한 번의 fail-closed scan에서 처리합니다. candidate query 또는 개별 candidate 실패는 다른 phase/candidate를 막지 않지만 같은 scan 안에서 retry하지 않습니다. 현재는 outbox/inbox, MQTT publish retry, 다중 Backend 인스턴스 coordination, broker 인증/TLS와 고가용성을 해결하지 않습니다. 실제 GPIO 성공과 AI model 결과도 Backend test로 주장하지 않습니다.
