@@ -51,6 +51,7 @@ class LatestFrameSlot:
         last_sequence: int,
         stop_event: threading.Event,
     ) -> CapturedFrame | None:
+        """Wait until a newer frame arrives or request_stop()/close() notifies."""
         with self._condition:
             while True:
                 if stop_event.is_set() or self._closed:
@@ -63,6 +64,12 @@ class LatestFrameSlot:
                     self._last_delivered_sequence = self._frame.sequence
                     return self._frame
                 self._condition.wait()
+
+    def request_stop(self, stop_event: threading.Event) -> None:
+        with self._condition:
+            stop_event.set()
+            self._closed = True
+            self._condition.notify_all()
 
     def close(self) -> None:
         with self._condition:

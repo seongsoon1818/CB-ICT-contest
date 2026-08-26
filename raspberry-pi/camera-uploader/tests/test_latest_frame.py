@@ -101,6 +101,30 @@ def test_close_wakes_waiter_without_a_frame() -> None:
     assert results == [None]
 
 
+def test_request_stop_sets_event_and_wakes_blocked_waiter() -> None:
+    slot = LatestFrameSlot()
+    stop_event = threading.Event()
+    started = threading.Event()
+    finished = threading.Event()
+    results: list[CapturedFrame | None] = []
+
+    def wait_for_frame() -> None:
+        started.set()
+        results.append(slot.wait_for_newer(0, stop_event))
+        finished.set()
+
+    thread = threading.Thread(target=wait_for_frame)
+    thread.start()
+    assert started.wait(timeout=1)
+
+    slot.request_stop(stop_event)
+
+    assert stop_event.is_set()
+    assert finished.wait(timeout=1)
+    thread.join(timeout=1)
+    assert results == [None]
+
+
 def test_publish_after_close_is_rejected() -> None:
     slot = LatestFrameSlot()
     slot.close()

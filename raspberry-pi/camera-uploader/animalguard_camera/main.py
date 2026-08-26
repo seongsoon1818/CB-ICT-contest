@@ -105,8 +105,7 @@ def run_upload_worker(
                 LOGGER.error(
                     "Stopping camera uploader because its configuration was rejected"
                 )
-                stop_event.set()
-                slot.close()
+                slot.request_stop(stop_event)
                 break
             case UploadResult.TRANSIENT_ERROR:
                 stats.record_upload_transient_error()
@@ -165,8 +164,7 @@ def run_service(
         except Exception as error:
             with errors_lock:
                 errors.append(error)
-            configured_stop_event.set()
-            slot.close()
+            slot.request_stop(configured_stop_event)
 
     producer = threading.Thread(
         name="camera-capture-producer",
@@ -201,8 +199,7 @@ def run_service(
         while not configured_stop_event.wait(settings.stats_interval_seconds):
             log_runtime_snapshot(stats.snapshot(monotonic()))
     finally:
-        configured_stop_event.set()
-        slot.close()
+        slot.request_stop(configured_stop_event)
         join_timeout = (
             settings.http_timeout_seconds
             + settings.upload_transient_backoff_seconds
