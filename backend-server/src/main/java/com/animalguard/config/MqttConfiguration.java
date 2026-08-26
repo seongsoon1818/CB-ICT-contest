@@ -6,6 +6,7 @@ import com.animalguard.mqtt.PahoMqttCommandTransport;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Fallback;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @Configuration(proxyBeanMethods = false)
@@ -19,6 +20,7 @@ public class MqttConfiguration {
     }
 
     @Bean
+    @Fallback
     MqttActuationTransportReadiness mqttActuationTransportReadiness(
             MqttProperties properties,
             MqttCommandTransport transport

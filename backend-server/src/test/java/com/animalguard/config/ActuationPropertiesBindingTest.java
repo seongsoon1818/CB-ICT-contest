@@ -42,10 +42,18 @@ class ActuationPropertiesBindingTest {
     @Test
     void providesUnavailableTransportReadinessByDefault() {
         new ApplicationContextRunner()
-                .withUserConfiguration(DeviceControlConfiguration.class)
+                .withUserConfiguration(DeviceControlConfiguration.class, MqttConfiguration.class)
                 .withPropertyValues(
                         "animalguard.device-control.cooldown=20s",
-                        "animalguard.device-control.command-ttl=10s"
+                        "animalguard.device-control.command-ttl=10s",
+                        "animalguard.mqtt.enabled=false",
+                        "animalguard.mqtt.host=127.0.0.1",
+                        "animalguard.mqtt.port=1883",
+                        "animalguard.mqtt.client-id=animalguard-backend",
+                        "animalguard.mqtt.connect-timeout=5s",
+                        "animalguard.mqtt.publish-timeout=5s",
+                        "animalguard.mqtt.dispatch-interval=500ms",
+                        "animalguard.mqtt.dispatch-batch-size=20"
                 )
                 .run(context -> {
                     assertThat(context).hasNotFailed();
@@ -58,11 +66,20 @@ class ActuationPropertiesBindingTest {
         new ApplicationContextRunner()
                 .withUserConfiguration(
                         DeviceControlConfiguration.class,
+                        MqttConfiguration.class,
                         AvailableTransportConfiguration.class
                 )
                 .withPropertyValues(
                         "animalguard.device-control.cooldown=20s",
-                        "animalguard.device-control.command-ttl=10s"
+                        "animalguard.device-control.command-ttl=10s",
+                        "animalguard.mqtt.enabled=false",
+                        "animalguard.mqtt.host=127.0.0.1",
+                        "animalguard.mqtt.port=1883",
+                        "animalguard.mqtt.client-id=animalguard-backend",
+                        "animalguard.mqtt.connect-timeout=5s",
+                        "animalguard.mqtt.publish-timeout=5s",
+                        "animalguard.mqtt.dispatch-interval=500ms",
+                        "animalguard.mqtt.dispatch-batch-size=20"
                 )
                 .run(context -> {
                     assertThat(context).hasNotFailed();
