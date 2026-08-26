@@ -7,6 +7,7 @@ import com.animalguard.domain.AnimalPresenceState;
 import com.animalguard.domain.CommandOutcome;
 import com.animalguard.domain.DetectionEvent;
 import com.animalguard.domain.DeviceCommand;
+import com.animalguard.domain.DeviceCommandSource;
 import com.animalguard.domain.DeviceCommandStatus;
 import com.animalguard.domain.DeviceCommandType;
 import com.animalguard.repository.AnimalObservationStateRepository;
@@ -45,6 +46,8 @@ class ObservationMaintenanceIntegrationTest {
 
     @Autowired
     private AnimalObservationService service;
+    @Autowired
+    private CommandReconciliationScheduler scheduler;
     @Autowired
     private AnimalObservationStateRepository observationRepository;
     @Autowired
@@ -156,7 +159,7 @@ class ObservationMaintenanceIntegrationTest {
 
         assertThat(service.releaseExecutedDeterrentForRepeat(before.getId(), BASE.plusSeconds(11))).isFalse();
         process("event-still-present-12", 12, true);
-        assertThat(service.releaseExecutedDeterrentForRepeat(before.getId(), BASE.plusSeconds(12))).isTrue();
+        scheduler.reconcile();
         assertThat(state().getDeterrentFullCommandId()).isNull();
 
         AnimalObservationResult cooldownSuppressed = process("event-repeat-cooldown", 13, true);
@@ -172,6 +175,60 @@ class ObservationMaintenanceIntegrationTest {
                         DeviceCommandType.DETERRENT_FULL,
                         DeviceCommandType.DETERRENT_FULL
                 );
+    }
+
+    @Test
+    void duplicateScansExpireOnceThenClearMarkerBeforeNoEventReset() {
+        process("event-expiring-sound", 0, true);
+        AnimalObservationState before = state();
+        String soundCommandId = before.getSoundAlertCommandId();
+
+        clock.set(BASE.plusSeconds(10));
+        scheduler.reconcile();
+
+        DeviceCommand expired = commandRepository.findByCommandId(soundCommandId).orElseThrow();
+        assertThat(expired.getStatus()).isEqualTo(DeviceCommandStatus.EXPIRED);
+        assertThat(expired.getExpiredAt()).isEqualTo(BASE.plusSeconds(10));
+        assertThat(state().getSoundAlertCommandId()).isNull();
+        assertThat(state().getPresenceState()).isEqualTo(AnimalPresenceState.PRESENT);
+
+        clock.set(BASE.plusSeconds(20));
+        scheduler.reconcile();
+        scheduler.reconcile();
+
+        DeviceCommand afterDuplicateScan = commandRepository.findByCommandId(soundCommandId).orElseThrow();
+        assertThat(afterDuplicateScan.getExpiredAt()).isEqualTo(BASE.plusSeconds(10));
+        assertThat(state().getPresenceState()).isEqualTo(AnimalPresenceState.IDLE);
+        assertThat(commandRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void schedulerAppliesCommandTimeoutsAtBoundaryAndLeavesFreshCandidatesUntouched() {
+        saveCommand("created-boundary", DeviceCommandStatus.CREATED, BASE, BASE.plusSeconds(30));
+        saveCommand("created-fresh", DeviceCommandStatus.CREATED, BASE, BASE.plusSeconds(31));
+        saveCommand("published-boundary", DeviceCommandStatus.PUBLISHED, BASE.plusSeconds(15), BASE.plusSeconds(60));
+        saveCommand("published-fresh", DeviceCommandStatus.PUBLISHED, BASE.plusSeconds(16), BASE.plusSeconds(60));
+        saveCommand("ack-boundary", DeviceCommandStatus.ACKNOWLEDGED, BASE.plusSeconds(15), BASE.plusSeconds(60));
+        saveCommand("ack-fresh", DeviceCommandStatus.ACKNOWLEDGED, BASE.plusSeconds(16), BASE.plusSeconds(60));
+        clock.set(BASE.plusSeconds(30));
+
+        scheduler.reconcile();
+
+        assertThat(status("created-boundary")).isEqualTo(DeviceCommandStatus.EXPIRED);
+        assertThat(status("created-fresh")).isEqualTo(DeviceCommandStatus.CREATED);
+        assertThat(status("published-boundary")).isEqualTo(DeviceCommandStatus.FAILED);
+        assertThat(status("published-fresh")).isEqualTo(DeviceCommandStatus.PUBLISHED);
+        assertThat(status("ack-boundary")).isEqualTo(DeviceCommandStatus.FAILED);
+        assertThat(status("ack-fresh")).isEqualTo(DeviceCommandStatus.ACKNOWLEDGED);
+
+        scheduler.reconcile();
+
+        assertThat(commandRepository.findByCommandId("created-boundary").orElseThrow().getExpiredAt())
+                .isEqualTo(BASE.plusSeconds(30));
+        assertThat(commandRepository.findByCommandId("published-boundary").orElseThrow().getFailedAt())
+                .isEqualTo(BASE.plusSeconds(30));
+        assertThat(commandRepository.findByCommandId("ack-boundary").orElseThrow().getFailedAt())
+                .isEqualTo(BASE.plusSeconds(30));
     }
 
     @Test
@@ -230,6 +287,47 @@ class ObservationMaintenanceIntegrationTest {
             command.markAcknowledged(BASE.plusSeconds(terminalOffsetSeconds - 1), BASE);
             command.markExecuted(BASE.plusSeconds(terminalOffsetSeconds), BASE);
         });
+    }
+
+    private void saveCommand(
+            String commandId,
+            DeviceCommandStatus status,
+            Instant transitionAt,
+            Instant expiresAt
+    ) {
+        transactionTemplate.executeWithoutResult(transactionStatus -> {
+            DetectionEvent event = eventRepository.save(new DetectionEvent(
+                    "event-" + commandId,
+                    "cam-001",
+                    BASE,
+                    1280,
+                    720,
+                    "animal-detector-v1",
+                    null
+            ));
+            DeviceCommand command = new DeviceCommand(
+                    commandId,
+                    event,
+                    "pi-001",
+                    DeviceCommandSource.AUTOMATIC,
+                    DeviceCommandType.SOUND_ALERT,
+                    2_000,
+                    "SCHEDULER_BOUNDARY_TEST",
+                    BASE,
+                    expiresAt
+            );
+            if (status == DeviceCommandStatus.PUBLISHED) {
+                command.markPublished(transitionAt);
+            } else if (status == DeviceCommandStatus.ACKNOWLEDGED) {
+                command.markPublished(BASE);
+                command.markAcknowledged(transitionAt, BASE);
+            }
+            commandRepository.save(command);
+        });
+    }
+
+    private DeviceCommandStatus status(String commandId) {
+        return commandRepository.findByCommandId(commandId).orElseThrow().getStatus();
     }
 
     private AnimalObservationState state() {
