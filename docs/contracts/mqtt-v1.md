@@ -137,7 +137,7 @@ Failure or expiry can occur before execution:
 
 Before dispatch, Backend applies the source-appropriate policy, target mapping, expiry, and safety checks. Automatic commands require a real Detection Event. Manual commands require a valid operator token at creation, an enabled operator API at dispatch, and no Detection Event. MQTT itself does not bypass Backend policy.
 
-For the MVP Publisher, `PUBLISHED` means dispatch was authorized and the publish attempt began; it does not prove broker delivery. Backend commits `PUBLISHED` before invoking the MQTT client so an immediate ACK cannot observe a `CREATED` row. An immediate publish failure is recorded as `FAILED`. A process crash after the commit but before or during the MQTT call can leave `PUBLISHED` without delivery; reconciliation for that crash window is a follow-up requirement.
+For the MVP Publisher, `PUBLISHED` means dispatch was authorized and the publish attempt began; it does not prove broker delivery. Backend commits `PUBLISHED` before invoking the MQTT client so an immediate ACK cannot observe a `CREATED` row. An immediate publish failure is recorded as `FAILED`. A process crash after the commit but before or during the MQTT call can leave `PUBLISHED` without delivery; the reconciliation scheduler marks a stale PUBLISHED or ACKNOWLEDGED command FAILED without MQTT retry.
 
 ## Scope and safety rules
 
@@ -156,4 +156,10 @@ Backend transport readiness requires an enabled MQTT client, an active broker co
 
 Backend strictly rejects ACK and status payloads with unknown fields, a wrong ACK timestamp field, a timezone-less reported timestamp, or a topic/payload/DB deviceId mismatch. It records device-reported time separately from Backend receipt time. Existing duplicate `device_statuses.device_id` rows are preserved; a new report updates the latest row by Backend `received_at` then id, or creates a row when none exists.
 
-Observation command markers mean only that a DeviceCommand row was created. They do not prove PUBLISHED, ACKNOWLEDGED, EXECUTED, GPIO activation, or GPIO stop. Reconciliation after FAILED or EXPIRED and the no-event case where no empty Detection Event arrives are follow-up safety responsibilities; the current Backend does not add a scheduler.
+Observation command markers mean only that a DeviceCommand row was created. They do not prove PUBLISHED, ACKNOWLEDGED, EXECUTED, GPIO activation, or GPIO stop. The reconciliation scheduler clears FAILED/EXPIRED markers so a later event can re-evaluate, expires stale CREATED commands, fails timed-out PUBLISHED/ACKNOWLEDGED commands, and runs the no-event watchdog. It does not infer broker delivery or retry a command.
+
+## Mock E2E evidence boundary
+
+`scripts/e2e/animalguard_mock_e2e.sh` verifies this contract with isolated PostgreSQL and Mosquitto, the real Backend publisher/subscriber, AI MockInference and the Raspberry Pi MQTT Simulator. It covers all five semantic commands, QoS 1 duplicate deduplication, device-reported ACK state changes, expiry and immediate publish-failure reconciliation. The fault proxy is test-only and drops one armed Backend PUBLISH before broker forwarding; it does not add a production transport mode.
+
+Mock E2E PASS does not prove model inference, physical GPIO, real Raspberry Pi clock/wiring, broker authentication/TLS or network reliability. The embedded controller has separate FakeGPIO tests, while real command/ACK/GPIO smoke remains hardware evidence.

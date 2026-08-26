@@ -19,17 +19,17 @@ AnimalGuard는 카메라 기반 유해동물 탐지·분류 결과를 활용해 
 
 ## 저장소 디렉터리
 
-- ai-server: 향후 FastAPI 기반 탐지·분류 추론 서버 경계
+- ai-server: FastAPI MockInference와 model bundle/runtime 경계
 - backend-server: Spring Boot Detection Event 수신·저장 및 위험도 판단
 - raspberry-pi: Raspberry Pi 장치의 MQTT/GPIO 경계
 - models: 향후 모델 산출물 보관 위치. 모델 바이너리는 커밋하지 않음
-- infra: 로컬 PostgreSQL 실행 구성
+- infra: 로컬 PostgreSQL·Mosquitto 실행 구성
 
 ## 현재 구현 상태
 
 Backend는 `POST /api/v1/detection/events`로 Detection Event v1을 받아 이벤트와 탐지, 모델 버전, 위험도 판단을 저장합니다. 모델 독립 response policy의 class allowlist, detection/classification confidence와 선택적 minimum risk level을 통과한 detection만 동물별 구분 없는 camera별 aggregate presence에 참여합니다. 통과하지 못한 detection도 DetectionEvent와 전체 detection 기반 RiskDecision 감사 기록에는 남습니다. frame 개수나 sequence 대신 `capturedAt`으로 첫 감지, 지속 감지, 짧은 미탐지 grace와 사라짐을 판단합니다. 첫 감지는 `SOUND_ALERT`, 지속 threshold는 `DETERRENT_FULL`, full deterrent가 생성된 session의 사라짐은 `STOP_DETERRENT`를 요청합니다. preflight나 cooldown으로 억제되면 command marker를 남기지 않고 다음 event에서 재평가합니다. `GET /api/v1/actuation/preflight`는 response policy와 MQTT 연결·ACK/status subscription을 포함한 일반 actuation 시작 readiness를 진단합니다.
 
-Backend는 MQTT command Publisher와 ACK/status Subscriber를 구현해 command 상태 전이와 장치 상태 저장까지 연결합니다. `POST /api/v1/devices/{deviceId}/commands`는 기본 비활성 shared operator token 경계 뒤에서 등록된 장치의 수동 회전과 safety-stop 명령을 만들며, 자동·수동 `CREATED` 명령은 publish 직전에 source별 preflight를 다시 검사합니다. AI Server의 실제 모델과 운영 class/threshold 값, retry/outbox, ROI 계산은 아직 확정·구현하지 않았습니다. observation marker는 DeviceCommand row가 `CREATED`로 저장됐다는 뜻이며 실제 GPIO 실행 완료를 뜻하지 않습니다. `raspberry-pi/embedded` 운영 계약 정렬은 이슈 #26 범위입니다. 안전 기본값으로 actuation, 위험 정책 확정 여부, response policy와 operator API는 false이고 MQTT disabled 상태의 readiness도 false이므로 production 기본 설정에서는 실제 DeviceCommand 생성이 차단됩니다.
+Backend는 MQTT command Publisher와 ACK/status Subscriber를 구현해 command 상태 전이와 장치 상태 저장까지 연결합니다. `POST /api/v1/devices/{deviceId}/commands`는 기본 비활성 shared operator token 경계 뒤에서 등록된 장치의 수동 회전과 safety-stop 명령을 만들며, 자동·수동 `CREATED` 명령은 publish 직전에 source별 preflight를 다시 검사합니다. timeout과 FAILED/EXPIRED marker reconciliation, no-event watchdog도 fail-closed scheduler로 처리합니다. Raspberry Pi embedded controller는 최종 MQTT v1 topic·payload·SQLite dedup·GPIO adapter 경계에 정렬됐지만 실제 hardware smoke는 별도입니다. 안전 기본값으로 actuation, 위험 정책 확정 여부, response policy와 operator API는 false이고 MQTT disabled 상태의 readiness도 false이므로 production 기본 설정에서는 실제 DeviceCommand 생성이 차단됩니다.
 
 ## 로컬 실행
 
@@ -49,3 +49,13 @@ BirdGuard 이름이 남은 schema, `bird_detections`가 있는 schema, `classifi
 cd backend-server
 ./gradlew test
 ```
+
+## Mock 전체 E2E
+
+실제 모델과 Raspberry Pi 대신 AI `MockInference`와 MQTT Simulator를 사용해 JPEG → DetectionEvent → observation → command → ACK → Backend terminal state를 격리된 PostgreSQL·Mosquitto에서 검증합니다.
+
+```bash
+bash scripts/e2e/animalguard_mock_e2e.sh
+```
+
+스크립트는 고유 Compose project와 임시 volume·process를 만들고 종료 시 정리합니다. 첫 감지, 지속 감지, brief miss, 사라짐, duplicate, expiry, publish failure reconciliation, 수동 API와 response eligibility를 검증합니다. 이 PASS는 실제 model inference, Raspberry Pi GPIO, camera 30FPS 또는 production broker를 증명하지 않습니다. 연결 전 입력과 활성화 순서는 [`docs/SOFTWARE_READY_CHECKLIST.md`](docs/SOFTWARE_READY_CHECKLIST.md)를 따릅니다.
