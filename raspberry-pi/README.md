@@ -1,8 +1,8 @@
 # Raspberry Pi
 
-이 디렉터리는 AnimalGuard Raspberry Pi 장치 구성요소의 경계입니다. 장치는 향후 MQTT의 의미 기반 command를 GPIO 동작으로 매핑하고 명령 처리 결과와 장치 상태를 발행합니다.
+이 디렉터리는 AnimalGuard Raspberry Pi 장치 구성요소의 경계입니다. 장치는 MQTT의 의미 기반 command를 GPIO 동작으로 매핑하고 명령 처리 결과와 장치 상태를 발행합니다.
 
-현재는 GPIO 또는 MQTT 실행 코드를 추가하지 않고 MQTT v1 계약만 정의합니다.
+`embedded/`에는 MQTT v1 계약에 맞춘 실제 controller 소스가 있으며, 설정·parser·SQLite dedup·GPIO adapter·MQTT lifecycle을 분리합니다. 로컬 테스트는 FakeGPIO로 검증했지만 실제 Raspberry Pi 배선과 module 동작은 별도 hardware smoke가 필요합니다. 설치·설정·증거 경계는 [`embedded/README.md`](embedded/README.md)를 따릅니다.
 
 ## 운영 관리 포트
 
