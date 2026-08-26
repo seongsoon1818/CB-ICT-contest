@@ -46,4 +46,26 @@ class MqttTopicCodecTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("UTF-8");
     }
+
+    @Test
+    void decodesDeviceIdFromExactAckAndStatusTopics() {
+        assertThat(MqttTopicCodec.deviceIdFromAckTopic(
+                "animalguard/devices/%EC%9E%A5%EC%B9%98%2F1/acks"
+        )).isEqualTo("장치/1");
+        assertThat(MqttTopicCodec.deviceIdFromStatusTopic(
+                "animalguard/devices/pi-001/status"
+        )).isEqualTo("pi-001");
+        assertThat(MqttTopicCodec.ACK_TOPIC_FILTER).isEqualTo("animalguard/devices/+/acks");
+        assertThat(MqttTopicCodec.STATUS_TOPIC_FILTER).isEqualTo("animalguard/devices/+/status");
+    }
+
+    @Test
+    void rejectsUnexpectedOrMultiSegmentInboundTopic() {
+        assertThatThrownBy(() -> MqttTopicCodec.deviceIdFromAckTopic(
+                "animalguard/devices/pi/001/acks"
+        )).isInstanceOf(MqttInboundContractException.class);
+        assertThatThrownBy(() -> MqttTopicCodec.deviceIdFromStatusTopic(
+                "animalguard/devices/pi-001/acks"
+        )).isInstanceOf(MqttInboundContractException.class);
+    }
 }
