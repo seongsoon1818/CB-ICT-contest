@@ -1,0 +1,2 @@
+paho-mqtt>=2,<3
+gpiozero>=2,<3
