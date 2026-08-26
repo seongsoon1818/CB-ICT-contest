@@ -105,7 +105,7 @@ class DeviceCommandCreationServiceIntegrationTest {
     }
 
     @Test
-    void suppressesSecondCommandDuringDeviceCooldown() {
+    void allowsSoundAlertToDeterrentFullSemanticTransitionDuringCooldown() {
         createInTransaction(
                 saveEvent("event-cooldown-first", "cam-001"),
                 "cam-001",
@@ -120,10 +120,76 @@ class DeviceCommandCreationServiceIntegrationTest {
                 "PERSISTENT_ANIMAL_DETECTION"
         );
 
+        assertThat(second.outcome()).isEqualTo(CommandOutcome.CREATED);
+        assertThat(second.commandId()).isNotBlank();
+        assertThat(second.blockers()).isEmpty();
+        assertThat(deviceCommandRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void suppressesRepeatedSoundAlertDuringCooldown() {
+        createInTransaction(
+                saveEvent("event-repeat-first", "cam-001"),
+                "cam-001",
+                DeviceCommandType.SOUND_ALERT,
+                "FIRST_ANIMAL_DETECTION"
+        );
+
+        CommandDecision second = createInTransaction(
+                saveEvent("event-repeat-second", "cam-001"),
+                "cam-001",
+                DeviceCommandType.SOUND_ALERT,
+                "FIRST_ANIMAL_DETECTION"
+        );
+
         assertThat(second.outcome()).isEqualTo(CommandOutcome.SUPPRESSED);
-        assertThat(second.commandId()).isNull();
         assertThat(second.blockers()).containsExactly(ActuationBlocker.COOLDOWN_ACTIVE);
         assertThat(deviceCommandRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void recentManualRotationDoesNotBlockAutomaticSoundAlert() {
+        transactionTemplate.executeWithoutResult(status -> deviceCommandRepository.save(new DeviceCommand(
+                "command-manual-rotation",
+                null,
+                "pi-001",
+                DeviceCommandSource.MANUAL,
+                DeviceCommandType.ROTATE_CAMERA_LEFT,
+                null,
+                "OPERATOR_REQUEST",
+                TEST_NOW,
+                TEST_NOW.plusSeconds(10)
+        )));
+
+        CommandDecision decision = createInTransaction(
+                saveEvent("event-after-manual", "cam-001"),
+                "cam-001",
+                DeviceCommandType.SOUND_ALERT,
+                "FIRST_ANIMAL_DETECTION"
+        );
+
+        assertThat(decision.outcome()).isEqualTo(CommandOutcome.CREATED);
+        assertThat(deviceCommandRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void stopBypassesCooldownAfterDeterrentFull() {
+        createInTransaction(
+                saveEvent("event-deterrent-before-stop", "cam-001"),
+                "cam-001",
+                DeviceCommandType.DETERRENT_FULL,
+                "PERSISTENT_ANIMAL_DETECTION"
+        );
+
+        CommandDecision stop = createInTransaction(
+                saveEvent("event-stop-after-deterrent", "cam-001"),
+                "cam-001",
+                DeviceCommandType.STOP_DETERRENT,
+                "ANIMAL_DISAPPEARED"
+        );
+
+        assertThat(stop.outcome()).isEqualTo(CommandOutcome.CREATED);
+        assertThat(deviceCommandRepository.count()).isEqualTo(2);
     }
 
     @Test
@@ -214,10 +280,11 @@ class DeviceCommandCreationServiceIntegrationTest {
 
         try {
             Future<CommandDecision> first = executor.submit(() -> transactionTemplate.execute(status -> {
-                CommandDecision decision = service.createIfAllowed(
+                CommandDecision decision = service.createAutomaticIfAllowed(
                         firstEvent,
                         "cam-001",
                         DeviceCommandType.SOUND_ALERT,
+                        2_000,
                         "FIRST_ANIMAL_DETECTION"
                 );
                 firstServiceReturned.countDown();
@@ -229,10 +296,11 @@ class DeviceCommandCreationServiceIntegrationTest {
 
             Future<CommandDecision> second = executor.submit(() -> transactionTemplate.execute(status -> {
                 secondTransactionStarted.countDown();
-                return service.createIfAllowed(
+                return service.createAutomaticIfAllowed(
                         secondEvent,
                         "cam-001",
                         DeviceCommandType.SOUND_ALERT,
+                        2_000,
                         "FIRST_ANIMAL_DETECTION"
                 );
             }));
@@ -281,7 +349,14 @@ class DeviceCommandCreationServiceIntegrationTest {
             DeviceCommandType commandType,
             String reason
     ) {
-        return transactionTemplate.execute(status -> service.createIfAllowed(event, cameraId, commandType, reason));
+        Integer durationMs = commandType == DeviceCommandType.STOP_DETERRENT ? null : 5_000;
+        return transactionTemplate.execute(status -> service.createAutomaticIfAllowed(
+                event,
+                cameraId,
+                commandType,
+                durationMs,
+                reason
+        ));
     }
 
     private void await(CountDownLatch latch, String timeoutMessage) {

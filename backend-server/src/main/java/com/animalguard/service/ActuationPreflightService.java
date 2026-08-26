@@ -3,6 +3,7 @@ package com.animalguard.service;
 import com.animalguard.config.ActuationProperties;
 import com.animalguard.config.DeviceControlProperties;
 import com.animalguard.domain.ActuationBlocker;
+import com.animalguard.domain.DeviceCommandType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +19,24 @@ public class ActuationPreflightService {
     private final ActuationTransportReadiness transportReadiness;
 
     public ActuationPreflight evaluate() {
+        List<ActuationBlocker> blockers = globalBlockers();
+        return new ActuationPreflight(
+                actuationProperties.enabled(),
+                blockers.isEmpty(),
+                blockers
+        );
+    }
+
+    public List<ActuationBlocker> blockersForAutomaticCommand(DeviceCommandType commandType) {
+        if (commandType == DeviceCommandType.STOP_DETERRENT) {
+            List<ActuationBlocker> blockers = new ArrayList<>();
+            addMappingAndTransportBlockers(blockers);
+            return List.copyOf(blockers);
+        }
+        return List.copyOf(globalBlockers());
+    }
+
+    private List<ActuationBlocker> globalBlockers() {
         List<ActuationBlocker> blockers = new ArrayList<>();
         if (!actuationProperties.enabled()) {
             blockers.add(ActuationBlocker.ACTUATION_DISABLED);
@@ -25,16 +44,16 @@ public class ActuationPreflightService {
         if (!actuationProperties.riskPolicyConfirmed()) {
             blockers.add(ActuationBlocker.RISK_POLICY_UNCONFIRMED);
         }
+        addMappingAndTransportBlockers(blockers);
+        return blockers;
+    }
+
+    private void addMappingAndTransportBlockers(List<ActuationBlocker> blockers) {
         if (deviceControlProperties.cameraDeviceMappings().isEmpty()) {
             blockers.add(ActuationBlocker.CAMERA_DEVICE_MAPPING_EMPTY);
         }
         if (!transportReadiness.isReady()) {
             blockers.add(ActuationBlocker.MQTT_PUBLISHER_NOT_READY);
         }
-        return new ActuationPreflight(
-                actuationProperties.enabled(),
-                blockers.isEmpty(),
-                blockers
-        );
     }
 }
