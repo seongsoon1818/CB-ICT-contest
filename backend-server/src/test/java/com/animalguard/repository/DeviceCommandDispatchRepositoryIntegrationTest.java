@@ -28,7 +28,7 @@ class DeviceCommandDispatchRepositoryIntegrationTest {
     private DetectionEventRepository eventRepository;
 
     @Test
-    void returnsOnlyOldestAutomaticCreatedCommandsWithinBatchSize() {
+    void returnsOldestCreatedCommandsAcrossAutomaticAndManualSourcesWithinBatchSize() {
         saveAutomatic("command-third", 3);
         saveAutomatic("command-first", 1);
         saveAutomatic("command-second", 2);
@@ -39,9 +39,8 @@ class DeviceCommandDispatchRepositoryIntegrationTest {
 
         assertThat(commandRepository.findDispatchCandidateCommandIds(
                 DeviceCommandStatus.CREATED,
-                DeviceCommandSource.AUTOMATIC,
                 PageRequest.of(0, 2)
-        )).containsExactly("command-first", "command-second");
+        )).containsExactly("command-manual", "command-first");
     }
 
     private DeviceCommand saveAutomatic(String commandId, long seconds) {

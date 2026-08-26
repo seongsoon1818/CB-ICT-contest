@@ -29,7 +29,9 @@ import static org.assertj.core.api.Assertions.assertThat;
         "animalguard.mqtt.enabled=true",
         "animalguard.mqtt.dispatch-interval=1h",
         "animalguard.actuation.enabled=true",
-        "animalguard.actuation.risk-policy-confirmed=true"
+        "animalguard.actuation.risk-policy-confirmed=true",
+        "animalguard.operator-api.enabled=true",
+        "animalguard.operator-api.token=fake-test-operator-token"
 })
 @ActiveProfiles("test")
 @Import(DeviceCommandDispatcherIntegrationTest.TestBeans.class)
@@ -95,6 +97,22 @@ class DeviceCommandDispatcherIntegrationTest {
         assertThat(failed.getFailedReportedAt()).isNull();
     }
 
+    @Test
+    void dispatchesCreatedManualCommandThroughSameCommitBoundary() {
+        saveManualCommand("manual-15356786-9588-4db4-a0fe-f8acd6300868");
+
+        dispatcher.dispatch();
+
+        assertThat(transport.observedStatus).isEqualTo(DeviceCommandStatus.PUBLISHED);
+        assertThat(transport.publishCount).isEqualTo(1);
+        assertThat(transport.payload)
+                .contains("\"eventId\":null")
+                .contains("\"source\":\"MANUAL\"")
+                .contains("\"durationMs\":null");
+        assertThat(command("manual-15356786-9588-4db4-a0fe-f8acd6300868").getStatus())
+                .isEqualTo(DeviceCommandStatus.PUBLISHED);
+    }
+
     private void saveCreatedCommand(String commandId) {
         transactionTemplate.executeWithoutResult(status -> {
             DetectionEvent event = eventRepository.save(new DetectionEvent(
@@ -118,6 +136,20 @@ class DeviceCommandDispatcherIntegrationTest {
                     NOW.plusSeconds(5)
             ));
         });
+    }
+
+    private void saveManualCommand(String commandId) {
+        transactionTemplate.executeWithoutResult(status -> commandRepository.save(new DeviceCommand(
+                commandId,
+                null,
+                "pi-001",
+                DeviceCommandSource.MANUAL,
+                DeviceCommandType.ROTATE_CAMERA_LEFT,
+                null,
+                "USER_REQUEST",
+                NOW.minusSeconds(5),
+                NOW.plusSeconds(5)
+        )));
     }
 
     private DeviceCommand command(String commandId) {

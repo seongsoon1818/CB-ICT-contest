@@ -25,12 +25,10 @@ public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, Lo
             SELECT command.commandId
             FROM DeviceCommand command
             WHERE command.status = :status
-              AND command.source = :source
             ORDER BY command.createdAt ASC, command.id ASC
             """)
     List<String> findDispatchCandidateCommandIds(
             @Param("status") DeviceCommandStatus status,
-            @Param("source") DeviceCommandSource source,
             Pageable pageable
     );
 

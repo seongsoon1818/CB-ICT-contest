@@ -1,7 +1,6 @@
 package com.animalguard.mqtt;
 
 import com.animalguard.config.MqttProperties;
-import com.animalguard.domain.DeviceCommandSource;
 import com.animalguard.domain.DeviceCommandStatus;
 import com.animalguard.repository.DeviceCommandRepository;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +34,6 @@ public class DeviceCommandDispatcher {
 
         List<String> commandIds = repository.findDispatchCandidateCommandIds(
                 DeviceCommandStatus.CREATED,
-                DeviceCommandSource.AUTOMATIC,
                 PageRequest.of(0, properties.dispatchBatchSize())
         );
         commandIds.forEach(this::dispatchOne);
