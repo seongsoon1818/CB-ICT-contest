@@ -60,6 +60,40 @@ class AnimalObservationStateTest {
     }
 
     @Test
+    void clearsOnlyExactMarkersAndTouchesBackendUpdateTime() {
+        AnimalObservationState state = AnimalObservationState.initializePresent("cam-001", T0, T0);
+        state.recordSoundAlertCommand("command-sound", T0.plusSeconds(1));
+        state.recordDeterrentFullCommand("command-full", T0.plusSeconds(2));
+
+        assertThat(state.clearSoundAlertCommand("other-command", T0.plusSeconds(3))).isFalse();
+        assertThat(state.getSoundAlertCommandId()).isEqualTo("command-sound");
+        assertThat(state.getUpdatedAt()).isEqualTo(T0.plusSeconds(2));
+
+        assertThat(state.clearSoundAlertCommand("command-sound", T0.plusSeconds(4))).isTrue();
+        assertThat(state.clearDeterrentFullCommand("command-full", T0.plusSeconds(5))).isTrue();
+        assertThat(state.getSoundAlertCommandId()).isNull();
+        assertThat(state.getDeterrentFullCommandId()).isNull();
+        assertThat(state.getUpdatedAt()).isEqualTo(T0.plusSeconds(5));
+    }
+
+    @Test
+    void resetsIdleWithoutInventingCapturedAt() {
+        AnimalObservationState state = AnimalObservationState.initializePresent("cam-001", T0, T0);
+        state.recordPresent(T0.plusSeconds(2), T0.plusSeconds(1));
+        state.recordDeterrentFullCommand("command-full", T0.plusSeconds(2));
+
+        state.resetToIdleWithoutEvent(T0.plusSeconds(10));
+
+        assertThat(state.getPresenceState()).isEqualTo(AnimalPresenceState.IDLE);
+        assertThat(state.getLastProcessedCapturedAt()).isEqualTo(T0.plusSeconds(2));
+        assertThat(state.getUpdatedAt()).isEqualTo(T0.plusSeconds(10));
+        assertThat(state.getFirstDetectedAt()).isNull();
+        assertThat(state.getLastDetectedAt()).isNull();
+        assertThat(state.getSoundAlertCommandId()).isNull();
+        assertThat(state.getDeterrentFullCommandId()).isNull();
+    }
+
+    @Test
     void exposesNoPublicSetter() {
         assertThat(Arrays.stream(AnimalObservationState.class.getMethods())
                 .map(Method::getName)
