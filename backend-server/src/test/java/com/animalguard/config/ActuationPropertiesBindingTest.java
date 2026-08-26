@@ -53,7 +53,11 @@ class ActuationPropertiesBindingTest {
                         "animalguard.mqtt.connect-timeout=5s",
                         "animalguard.mqtt.publish-timeout=5s",
                         "animalguard.mqtt.dispatch-interval=500ms",
-                        "animalguard.mqtt.dispatch-batch-size=20"
+                        "animalguard.mqtt.dispatch-batch-size=20",
+                        "animalguard.reconciliation.scan-interval=1s",
+                        "animalguard.reconciliation.published-timeout=15s",
+                        "animalguard.reconciliation.acknowledged-timeout=15s",
+                        "animalguard.reconciliation.max-automatic-attempts-per-session=3"
                 )
                 .run(context -> {
                     assertThat(context).hasNotFailed();
@@ -79,7 +83,11 @@ class ActuationPropertiesBindingTest {
                         "animalguard.mqtt.connect-timeout=5s",
                         "animalguard.mqtt.publish-timeout=5s",
                         "animalguard.mqtt.dispatch-interval=500ms",
-                        "animalguard.mqtt.dispatch-batch-size=20"
+                        "animalguard.mqtt.dispatch-batch-size=20",
+                        "animalguard.reconciliation.scan-interval=1s",
+                        "animalguard.reconciliation.published-timeout=15s",
+                        "animalguard.reconciliation.acknowledged-timeout=15s",
+                        "animalguard.reconciliation.max-automatic-attempts-per-session=3"
                 )
                 .run(context -> {
                     assertThat(context).hasNotFailed();
