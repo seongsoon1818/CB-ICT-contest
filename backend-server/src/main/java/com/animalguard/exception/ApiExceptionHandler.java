@@ -22,6 +22,12 @@ public class ApiExceptionHandler {
                 .body(new ApiError("DUPLICATE_EVENT", exception.getMessage()));
     }
 
+    @ExceptionHandler(OperatorAuthenticationException.class)
+    public ResponseEntity<ApiError> handleOperatorAuthentication(OperatorAuthenticationException exception) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new ApiError("OPERATOR_AUTHENTICATION_FAILED", exception.getMessage()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException exception) {
         List<ValidationViolation> violations = exception.getBindingResult().getAllErrors().stream()

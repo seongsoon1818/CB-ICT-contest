@@ -10,7 +10,8 @@ import java.time.Clock;
 @EnableConfigurationProperties({
         DeviceControlProperties.class,
         ActuationProperties.class,
-        ReconciliationProperties.class
+        ReconciliationProperties.class,
+        OperatorApiProperties.class
 })
 public class DeviceControlConfiguration {
 

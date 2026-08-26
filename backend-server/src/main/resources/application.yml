@@ -59,6 +59,9 @@ animalguard:
   actuation:
     enabled: ${ACTUATION_ENABLED:false}
     risk-policy-confirmed: ${RISK_POLICY_CONFIRMED:false}
+  operator-api:
+    enabled: ${OPERATOR_API_ENABLED:false}
+    token: ${OPERATOR_API_TOKEN:}
   device-control:
     cooldown: ${DEVICE_COMMAND_COOLDOWN:20s}
     command-ttl: ${DEVICE_COMMAND_TTL:10s}
