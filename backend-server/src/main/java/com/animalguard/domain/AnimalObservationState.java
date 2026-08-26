@@ -158,6 +158,28 @@ public class AnimalObservationState {
         validateInvariants();
     }
 
+    public boolean clearSoundAlertCommand(String commandId, Instant now) {
+        requireText(commandId, "commandId");
+        if (!commandId.equals(soundAlertCommandId)) {
+            return false;
+        }
+        soundAlertCommandId = null;
+        touch(now);
+        validateInvariants();
+        return true;
+    }
+
+    public boolean clearDeterrentFullCommand(String commandId, Instant now) {
+        requireText(commandId, "commandId");
+        if (!commandId.equals(deterrentFullCommandId)) {
+            return false;
+        }
+        deterrentFullCommandId = null;
+        touch(now);
+        validateInvariants();
+        return true;
+    }
+
     public void resetToIdle(Instant capturedAt, Instant now) {
         requireState(AnimalPresenceState.PRESENT);
         // processEmpty records this capturedAt through startAbsence before confirming disappearance.
@@ -171,6 +193,18 @@ public class AnimalObservationState {
         soundAlertCommandId = null;
         deterrentFullCommandId = null;
         markProcessed(capturedAt, now);
+    }
+
+    public void resetToIdleWithoutEvent(Instant now) {
+        requireState(AnimalPresenceState.PRESENT);
+        presenceState = AnimalPresenceState.IDLE;
+        firstDetectedAt = null;
+        lastDetectedAt = null;
+        absenceStartedAt = null;
+        soundAlertCommandId = null;
+        deterrentFullCommandId = null;
+        touch(now);
+        validateInvariants();
     }
 
     private void markProcessed(Instant capturedAt, Instant now) {

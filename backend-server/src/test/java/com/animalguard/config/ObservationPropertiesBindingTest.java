@@ -20,7 +20,9 @@ class ObservationPropertiesBindingTest {
                     "animalguard.observation.absence-grace=2s",
                     "animalguard.observation.continuity-timeout=3s",
                     "animalguard.observation.sound-alert-duration=2s",
-                    "animalguard.observation.deterrent-full-duration=5s"
+                    "animalguard.observation.deterrent-full-duration=5s",
+                    "animalguard.observation.no-event-timeout=10s",
+                    "animalguard.observation.deterrent-repeat-interval=0s"
             );
 
     @Test
@@ -33,12 +35,14 @@ class ObservationPropertiesBindingTest {
             assertThat(properties.continuityTimeout()).isEqualTo(Duration.ofSeconds(3));
             assertThat(properties.soundAlertDurationMs()).isEqualTo(2_000);
             assertThat(properties.deterrentFullDurationMs()).isEqualTo(5_000);
+            assertThat(properties.noEventTimeout()).isEqualTo(Duration.ofSeconds(10));
+            assertThat(properties.deterrentRepeatInterval()).isZero();
         });
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"persistence-threshold", "absence-grace", "continuity-timeout",
-            "sound-alert-duration", "deterrent-full-duration"})
+            "sound-alert-duration", "deterrent-full-duration", "no-event-timeout"})
     void rejectsNonPositiveDuration(String property) {
         contextRunner.withPropertyValues("animalguard.observation." + property + "=0s")
                 .run(context -> assertThat(context).hasFailed());
@@ -47,6 +51,14 @@ class ObservationPropertiesBindingTest {
     @Test
     void rejectsNegativeDuration() {
         contextRunner.withPropertyValues("animalguard.observation.persistence-threshold=-1s")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void allowsZeroRepeatIntervalButRejectsNegativeRepeatInterval() {
+        contextRunner.withPropertyValues("animalguard.observation.deterrent-repeat-interval=0s")
+                .run(context -> assertThat(context).hasNotFailed());
+        contextRunner.withPropertyValues("animalguard.observation.deterrent-repeat-interval=-1ms")
                 .run(context -> assertThat(context).hasFailed());
     }
 
