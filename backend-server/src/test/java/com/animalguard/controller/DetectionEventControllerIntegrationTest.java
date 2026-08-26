@@ -1,6 +1,7 @@
 package com.animalguard.controller;
 
 import com.animalguard.repository.AnimalDetectionRepository;
+import com.animalguard.repository.AnimalObservationStateRepository;
 import com.animalguard.repository.DeviceCommandRepository;
 import com.animalguard.repository.DetectionEventRepository;
 import com.animalguard.repository.RiskDecisionRepository;
@@ -61,6 +62,9 @@ class DetectionEventControllerIntegrationTest {
     private DeviceCommandRepository deviceCommandRepository;
 
     @Autowired
+    private AnimalObservationStateRepository observationStateRepository;
+
+    @Autowired
     private MutableClock clock;
 
     @Autowired
@@ -71,6 +75,7 @@ class DetectionEventControllerIntegrationTest {
         clock.set(TEST_NOW);
         transportReadiness.setReady(true);
         deviceCommandRepository.deleteAll();
+        observationStateRepository.deleteAll();
         riskDecisionRepository.deleteAll();
         detectionEventRepository.deleteAll();
     }
@@ -86,8 +91,8 @@ class DetectionEventControllerIntegrationTest {
                 .andExpect(jsonPath("$.eventId", is(EVENT_ID)))
                 .andExpect(jsonPath("$.riskScore", is(45)))
                 .andExpect(jsonPath("$.riskLevel", is("MEDIUM")))
-                .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")))
-                .andExpect(jsonPath("$.commandBlockers").isEmpty())
+                .andExpect(jsonPath("$.commandOutcome", is("SUPPRESSED")))
+                .andExpect(jsonPath("$.commandBlockers", hasItem("MQTT_PUBLISHER_NOT_READY")))
                 .andExpect(jsonPath("$.commandId").doesNotExist());
 
         assertThat(detectionEventRepository.count()).isEqualTo(1);
@@ -102,21 +107,21 @@ class DetectionEventControllerIntegrationTest {
     }
 
     @Test
-    void doesNotSelectAutomaticCommandBeforeObservationPolicyExists() throws Exception {
+    void selectsFirstDetectionSoundAlertRegardlessOfRiskLevel() throws Exception {
         mockMvc.perform(post("/api/v1/detection/events")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(highRiskPayload(EVENT_ID)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.riskScore", is(70)))
                 .andExpect(jsonPath("$.riskLevel", is("HIGH")))
-                .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")))
+                .andExpect(jsonPath("$.commandOutcome", is("CREATED")))
                 .andExpect(jsonPath("$.commandBlockers").isEmpty())
-                .andExpect(jsonPath("$.commandId").doesNotExist());
+                .andExpect(jsonPath("$.commandId").isNotEmpty());
 
         assertThat(detectionEventRepository.count()).isEqualTo(1);
         assertThat(animalDetectionRepository.count()).isEqualTo(3);
         assertThat(riskDecisionRepository.count()).isEqualTo(1);
-        assertThat(deviceCommandRepository.count()).isZero();
+        assertThat(deviceCommandRepository.count()).isEqualTo(1);
     }
 
     @Test

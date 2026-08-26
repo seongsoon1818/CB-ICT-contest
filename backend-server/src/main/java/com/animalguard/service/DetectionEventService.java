@@ -23,6 +23,7 @@ public class DetectionEventService {
     private final DetectionEventRepository detectionEventRepository;
     private final RiskDecisionRepository riskDecisionRepository;
     private final RiskDecisionEngine riskDecisionEngine;
+    private final AnimalObservationService animalObservationService;
 
     @Transactional
     public DetectionEventResponse receive(DetectionEventRequest request) {
@@ -70,14 +71,26 @@ public class DetectionEventService {
                 assessment.reason()
         ));
 
-        CommandDecision commandDecision = CommandDecision.notRequested();
+        boolean animalPresent = !request.detections().isEmpty();
+        AnimalObservationResult observationResult = animalObservationService.process(
+                event,
+                request.cameraId(),
+                request.capturedAt(),
+                animalPresent
+        );
+        CommandDecision commandDecision = observationResult.commandDecision();
 
         log.info(
-                "Command decision completed: eventId={}, cameraId={}, riskLevel={}, outcome={}, "
-                        + "commandId={}, blockers={}",
+                "Observation decision completed: eventId={}, cameraId={}, capturedAt={}, animalPresent={}, "
+                        + "observationState={}, observationTrigger={}, commandType={}, commandOutcome={}, "
+                        + "commandId={}, commandBlockers={}",
                 event.getEventId(),
                 request.cameraId(),
-                assessment.level(),
+                request.capturedAt(),
+                animalPresent,
+                observationResult.presenceState(),
+                observationResult.trigger(),
+                observationResult.commandType(),
                 commandDecision.outcome(),
                 commandDecision.commandId(),
                 commandDecision.blockers()

@@ -11,8 +11,7 @@ import java.time.Clock;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({
         DeviceControlProperties.class,
-        ActuationProperties.class,
-        ObservationProperties.class
+        ActuationProperties.class
 })
 public class DeviceControlConfiguration {
 
