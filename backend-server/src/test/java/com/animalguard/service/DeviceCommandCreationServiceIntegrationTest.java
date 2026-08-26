@@ -148,6 +148,27 @@ class DeviceCommandCreationServiceIntegrationTest {
     }
 
     @Test
+    void suppressesRepeatedDeterrentFullDuringCooldown() {
+        createInTransaction(
+                saveEvent("event-deterrent-repeat-first", "cam-001"),
+                "cam-001",
+                DeviceCommandType.DETERRENT_FULL,
+                "PERSISTENT_ANIMAL_DETECTION"
+        );
+
+        CommandDecision second = createInTransaction(
+                saveEvent("event-deterrent-repeat-second", "cam-001"),
+                "cam-001",
+                DeviceCommandType.DETERRENT_FULL,
+                "PERSISTENT_ANIMAL_DETECTION"
+        );
+
+        assertThat(second.outcome()).isEqualTo(CommandOutcome.SUPPRESSED);
+        assertThat(second.blockers()).containsExactly(ActuationBlocker.COOLDOWN_ACTIVE);
+        assertThat(deviceCommandRepository.count()).isEqualTo(1);
+    }
+
+    @Test
     void recentManualRotationDoesNotBlockAutomaticSoundAlert() {
         transactionTemplate.executeWithoutResult(status -> deviceCommandRepository.save(new DeviceCommand(
                 "command-manual-rotation",

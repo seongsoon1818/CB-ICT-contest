@@ -45,6 +45,12 @@ class ObservationPropertiesBindingTest {
     }
 
     @Test
+    void rejectsNegativeDuration() {
+        contextRunner.withPropertyValues("animalguard.observation.persistence-threshold=-1s")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
     void rejectsContinuityTimeoutShorterThanAbsenceGrace() {
         contextRunner.withPropertyValues("animalguard.observation.continuity-timeout=1999ms")
                 .run(context -> assertThat(context).hasFailed());

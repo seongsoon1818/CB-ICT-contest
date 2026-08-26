@@ -157,6 +157,23 @@ class AnimalObservationServiceIntegrationTest {
     }
 
     @Test
+    void keepsExistingSessionAcrossLongPositiveGapAfterFullDeterrentMarker() {
+        process("event-full-session-0", 0, true);
+        process("event-full-session-2", 2, true);
+        process("event-full-session-5", 5, true);
+
+        AnimalObservationResult afterGap = process("event-full-session-9", 9, true);
+
+        assertThat(afterGap.trigger()).isEqualTo(ObservationTrigger.NONE);
+        assertThat(afterGap.commandDecision().outcome()).isEqualTo(CommandOutcome.NOT_REQUESTED);
+        AnimalObservationState state = observationRepository.findByCameraId("cam-001").orElseThrow();
+        assertThat(state.getFirstDetectedAt()).isEqualTo(BASE);
+        assertThat(state.getLastDetectedAt()).isEqualTo(BASE.plusSeconds(9));
+        assertThat(state.getDeterrentFullCommandId()).isNotBlank();
+        assertThat(commandRepository.count()).isEqualTo(2);
+    }
+
+    @Test
     void prioritizesPersistentResponseAfterSuppressedSoundAndRetriesSuppressedStop() {
         transportReadiness.setReady(false);
         assertThat(process("event-blocked-sound-0", 0, true).commandDecision().outcome())

@@ -142,6 +142,21 @@ class DeviceCommandCreationServiceTest {
     }
 
     @Test
+    void suppressesSafetyStopForUnmappedCamera() {
+        CommandDecision decision = service(properties, false, false, true).createAutomaticIfAllowed(
+                event("event-unmapped-stop"),
+                "cam-unknown",
+                DeviceCommandType.STOP_DETERRENT,
+                null,
+                "ANIMAL_DISAPPEARED"
+        );
+
+        assertThat(decision.outcome()).isEqualTo(CommandOutcome.SUPPRESSED);
+        assertThat(decision.blockers()).containsExactly(ActuationBlocker.CAMERA_UNMAPPED);
+        verifyNoInteractions(deviceCommandRepository);
+    }
+
+    @Test
     void createsCommandForMappedCameraWhenDeviceIsIdle() {
         when(deviceCommandRepository.findTopByDeviceIdAndSourceOrderByCreatedAtDesc(
                 "pi-001",

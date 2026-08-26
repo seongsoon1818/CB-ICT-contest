@@ -144,6 +144,30 @@ class DetectionEventControllerIntegrationTest {
     }
 
     @Test
+    void storesRiskDecisionButDoesNotChangeObservationForStaleCapturedAt() throws Exception {
+        String currentEventId = "15356786-9588-4db4-a0fe-f8acd6300869";
+        String staleEventId = "15356786-9588-4db4-a0fe-f8acd6300870";
+
+        mockMvc.perform(post("/api/v1/detection/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(oneDetectionPayloadAt(currentEventId, "2026-08-24T08:00:01Z")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.commandOutcome", is("CREATED")));
+
+        mockMvc.perform(post("/api/v1/detection/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(emptyDetectionsPayloadAt(staleEventId, "2026-08-24T08:00:00Z")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")));
+
+        assertThat(detectionEventRepository.count()).isEqualTo(2);
+        assertThat(riskDecisionRepository.count()).isEqualTo(2);
+        assertThat(deviceCommandRepository.count()).isEqualTo(1);
+        assertThat(observationStateRepository.findByCameraId("cam-001").orElseThrow()
+                .getLastProcessedCapturedAt()).isEqualTo(Instant.parse("2026-08-24T08:00:01Z"));
+    }
+
+    @Test
     void rejectsDuplicateEventIdWithConflict() throws Exception {
         String payload = oneDetectionPayload(EVENT_ID);
 
@@ -335,11 +359,15 @@ class DetectionEventControllerIntegrationTest {
     }
 
     private String oneDetectionPayload(String eventId) {
+        return oneDetectionPayloadAt(eventId, "2026-08-24T08:00:00Z");
+    }
+
+    private String oneDetectionPayloadAt(String eventId, String capturedAt) {
         return """
                 {
                   "eventId": "%s",
                   "cameraId": "cam-001",
-                  "capturedAt": "2026-08-24T08:00:00Z",
+                  "capturedAt": "%s",
                   "image": {"width": 1280, "height": 720},
                   "model": {"detectorVersion": "animal-detector-v1", "classifierVersion": null},
                   "detections": [
@@ -353,7 +381,7 @@ class DetectionEventControllerIntegrationTest {
                     }
                   ]
                 }
-                """.formatted(eventId);
+                """.formatted(eventId, capturedAt);
     }
 
     private String highRiskPayload(String eventId) {
@@ -378,16 +406,20 @@ class DetectionEventControllerIntegrationTest {
     }
 
     private String emptyDetectionsPayload(String eventId) {
+        return emptyDetectionsPayloadAt(eventId, "2026-08-24T08:00:00Z");
+    }
+
+    private String emptyDetectionsPayloadAt(String eventId, String capturedAt) {
         return """
                 {
                   "eventId": "%s",
                   "cameraId": "cam-001",
-                  "capturedAt": "2026-08-24T08:00:00Z",
+                  "capturedAt": "%s",
                   "image": {"width": 1280, "height": 720},
                   "model": {"detectorVersion": "animal-detector-v1", "classifierVersion": null},
                   "detections": []
                 }
-                """.formatted(eventId);
+                """.formatted(eventId, capturedAt);
     }
 
     private String payloadWithoutDetections(String eventId) {
