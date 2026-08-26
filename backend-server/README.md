@@ -144,7 +144,7 @@ animalguard:
 
 port는 1~65535, client ID와 host는 non-blank, timeout과 interval은 양수, batch size는 양수여야 합니다. username과 password는 빈 값일 수 있지만 실제 credential을 tracked 설정에 넣지 않습니다. 설정 객체 문자열과 Backend 로그에는 password를 출력하지 않습니다.
 
-기본 `MQTT_ENABLED=false`에서는 애플리케이션이 broker 없이 시작하고 연결이나 publish를 시도하지 않으며 transport readiness는 false입니다. enabled 상태의 readiness는 Paho client가 실제로 connected일 때만 true입니다. 별도 property로 readiness를 강제로 true로 만들 수 없습니다. 초기 broker 연결 실패도 애플리케이션 시작을 실패시키지 않으며 scheduler가 다시 연결을 시도합니다. Paho automatic reconnect도 활성화합니다. 연결 경고는 host, port와 분류된 원인만 최대 30초에 한 번 기록하고 password나 반복 stack trace를 포함하지 않습니다.
+기본 `MQTT_ENABLED=false`에서는 애플리케이션이 broker 없이 시작하고 연결, subscribe, publish를 시도하지 않으며 transport readiness는 false입니다. enabled 상태의 readiness는 Paho client가 실제로 connected이고 ACK와 status subscription의 SUBACK가 모두 완료된 경우에만 true입니다. 별도 property로 readiness를 강제로 true로 만들 수 없습니다. 초기 broker 연결 실패도 애플리케이션 시작을 실패시키지 않으며 scheduler가 다시 연결을 시도합니다. Paho automatic reconnect도 활성화하고 reconnect callback마다 두 topic을 다시 subscribe합니다. 연결과 subscription 경고는 분류된 원인만 최대 30초에 한 번 기록하고 password나 반복 stack trace를 포함하지 않습니다.
 
 command topic은 다음 형식입니다.
 
@@ -165,7 +165,9 @@ Publisher JSON은 Entity를 직접 serialize하지 않고 MQTT 전용 DTO를 사
 
 `PUBLISHED`는 broker delivery 증명이 아니라 dispatch가 승인돼 publish 호출을 시작했다는 뜻입니다. transaction commit 뒤 transport를 호출하므로 즉시 도착하는 후속 ACK가 `CREATED`를 관찰하지 않습니다. Paho publish가 즉시 실패하면 별도 transaction에서 현재 상태가 여전히 `PUBLISHED`인 command만 `FAILED(now, reportedAt=null)`로 바꿉니다. publish timeout, disconnect, optimistic-lock 충돌을 이유로 MQTT command를 자동 재발행하지 않습니다.
 
-process가 `PUBLISHED` commit 후 publish 전이나 호출 도중 종료되면 delivery 없이 `PUBLISHED`가 남을 수 있습니다. 이 crash window와 PUBLISHED/ACKNOWLEDGED timeout은 reconciliation PR 책임입니다. ACK/status subscription, subscription readiness, manual command dispatch, TLS/ACL, outbox, multi-instance coordination도 이 PR에 포함하지 않습니다.
+process가 `PUBLISHED` commit 후 publish 전이나 호출 도중 종료되면 delivery 없이 `PUBLISHED`가 남을 수 있습니다. 이 crash window와 PUBLISHED/ACKNOWLEDGED timeout은 reconciliation PR 책임입니다. manual command dispatch, TLS/ACL, outbox, multi-instance coordination도 현재 범위에 포함하지 않습니다.
+
+ACK/status Subscriber는 QoS 1으로 `animalguard/devices/+/acks`와 `animalguard/devices/+/status`를 구독합니다. ACK는 commandId, deviceId, status와 상태에 맞는 timestamp 정확히 하나만 허용하고 status 보고는 deviceId, status, reportedAt, firmwareVersion 정확히 네 필드만 허용합니다. unknown field, 잘못된 timestamp field, timezone 없는 시각과 topic/payload/DB deviceId 불일치는 상태 변경 전에 거절합니다.
 
 ## 로컬 실행
 
@@ -185,7 +187,9 @@ SPRING_PROFILES_ACTIVE=local ./gradlew bootRun
 
 ## 데이터베이스 schema 관리
 
-`src/main/resources/db/migration`의 Flyway migration이 schema 변경의 source of truth입니다. V1은 baseline, V2는 DeviceCommand 전달 lifecycle, V3는 source/manual 계약, V4는 unique cameraId와 optimistic-lock version을 가진 `animal_observation_states`를 추가합니다. nullable command marker는 command 실행 lifecycle과 observation lifecycle을 불필요하게 결합하지 않도록 FK를 두지 않습니다. Flyway는 모든 프로필에서 활성화되고 `baseline-on-migrate=false`, `clean-disabled=true`가 기본값입니다.
+`src/main/resources/db/migration`의 Flyway migration이 schema 변경의 source of truth입니다. V1은 baseline, V2는 DeviceCommand 전달 lifecycle, V3는 source/manual 계약, V4는 unique cameraId와 optimistic-lock version을 가진 `animal_observation_states`를 추가합니다. V5는 기존 `device_statuses`의 connected, last_seen, temperature와 duplicate deviceId를 보존하면서 operational_status, firmware_version, reported_at, received_at, version을 추가합니다. nullable command marker는 command 실행 lifecycle과 observation lifecycle을 불필요하게 결합하지 않도록 FK를 두지 않습니다. Flyway는 모든 프로필에서 활성화되고 `baseline-on-migrate=false`, `clean-disabled=true`가 기본값입니다.
+
+V5는 기존 connected=true를 ONLINE, false를 OFFLINE으로 backfill하고 reported_at에는 last_seen, received_at에는 `COALESCE(last_seen, CURRENT_TIMESTAMP)`를 사용합니다. 새 status 보고는 장치 시각을 reportedAt, Backend `Clock`을 receivedAt과 legacy lastSeen에 저장합니다. ONLINE, DEGRADED, MAINTENANCE는 connected=true이고 OFFLINE만 false입니다. deviceId가 unique가 아니므로 같은 deviceId의 row가 여러 개면 `receivedAt DESC, id DESC`의 최신 row 하나를 갱신하고 없으면 새 row를 생성합니다.
 
 V2 이전의 command에는 MQTT payload field와 실제 publish 이력이 없습니다. V2는 이 row를 삭제하거나 publish 가능한 `CREATED`로 남기지 않고 `status=EXPIRED`, `reason=LEGACY_PRE_MQTT_COMMAND`, `issued_at=expires_at=expired_at=created_at`으로 backfill한 뒤 required column을 `NOT NULL`로 전환합니다. 이 equality는 새 command 생성자의 `expiresAt > issuedAt` 규칙을 만족하는 정상 command를 합성하려는 것이 아니라, publish할 수 없는 legacy row를 migration 전용 terminal tombstone으로 보존한다는 뜻입니다. 장치 보고 시각은 알 수 없으므로 네 `*_reported_at` column은 `NULL`, optimistic-lock `version`은 `0`으로 시작합니다.
 
@@ -207,7 +211,7 @@ Found non-empty schema(s) "public" but no schema history table. Use baseline() o
 
 `classification_confidence` nullable 변경 전에 생성한 `animalguard-postgres-data` volume은 V1과 schema가 일치하지 않아 자동 도입 대상이 아닙니다. 필요한 데이터를 백업한 뒤 volume을 재생성해야 합니다.
 
-## MQTT delivery와 다음 Subscriber handoff
+## MQTT delivery와 ACK/status Subscriber
 
 | 다음 작업 | 사용할 field/method |
 | --- | --- |
@@ -221,8 +225,8 @@ Found non-empty schema(s) "public" but no schema history table. Use baseline() o
 
 기존 `acknowledged_at`, `executed_at`, `failed_at`, `expired_at`은 Backend가 ACK를 받은 시각 또는 자체 실패·만료를 결정한 시각입니다. ACK payload의 장치 시각은 각각 `acknowledged_reported_at`, `executed_reported_at`, `failed_reported_at`, `expired_reported_at`에 별도로 저장합니다. 상태 순서는 Backend 시각끼리만 비교하고 장치 시각과 Backend 시각을 직접 비교하지 않습니다. ACKNOWLEDGED와 EXECUTED의 장치 보고 시각은 필수이고, Backend 자체 실패·만료에는 장치 보고 시각이 없을 수 있습니다.
 
-ACK Subscriber는 ACK의 의미에 따라 transition method를 호출합니다. `CREATED → PUBLISHED → ACKNOWLEDGED → EXECUTED`, `PUBLISHED/ACKNOWLEDGED → FAILED`, `CREATED/PUBLISHED → EXPIRED`만 허용하며 같은 상태의 QoS 1 중복 적용은 최초 Backend/장치 timestamp를 모두 보존하는 no-op입니다. 순서를 건너뛰거나 terminal 상태를 바꾸거나 이전 Backend timestamp를 적용하면 Entity를 변경하기 전에 거절합니다. `@Version`은 동시 writer의 lost update를 감지합니다. 후속 handler는 optimistic-lock 충돌 시 상태를 다시 읽고 같은 상태나 이미 진행된 상태는 멱등 처리하며 충돌하는 terminal 상태는 거절하고 기록해야 합니다. DB 충돌을 이유로 MQTT publish를 자동 재시도해서는 안 됩니다.
+ACK Subscriber는 ACK의 의미에 따라 transition method를 호출합니다. `CREATED → PUBLISHED → ACKNOWLEDGED → EXECUTED`, `PUBLISHED/ACKNOWLEDGED → FAILED`, `CREATED/PUBLISHED → EXPIRED`만 허용하며 같은 상태의 QoS 1 중복 적용은 최초 Backend/장치 timestamp를 모두 보존하는 no-op입니다. ACKNOWLEDGED가 이미 EXECUTED까지 진행된 경우도 멱등하게 무시합니다. 순서를 건너뛰거나 terminal 상태를 바꾸는 ACK는 Entity를 변경하기 전에 거절합니다. `@Version` 충돌 시 현재 row를 reload하고 같은 상태·advanced 상태·terminal conflict를 재평가하며, 아직 동일 ACK가 명확히 적용 가능한 경우에만 저장을 1회 재시도합니다. 두 번째 충돌은 오류로 기록하고 추가 retry나 MQTT command 재발행을 하지 않습니다.
 
-현재 production code에서 `DeviceCommandCreationService`가 preflight를 통과한 `CREATED`를 만들고, `DeviceCommandDispatcher`와 `DeviceCommandDispatchCoordinator`가 `markPublished`, 자체 만료의 `markExpired`, 즉시 publish 실패의 `markFailed`를 실제로 호출합니다. V2 migration은 MQTT 이력이 없는 legacy row를 `EXPIRED`로 전환합니다. `markAcknowledged`, `markExecuted`와 장치가 보고한 FAILED/EXPIRED 적용은 다음 ACK Subscriber가 실제 호출합니다.
+현재 production code에서 `DeviceCommandCreationService`가 preflight를 통과한 `CREATED`를 만들고, `DeviceCommandDispatcher`와 `DeviceCommandDispatchCoordinator`가 `markPublished`, 자체 만료의 `markExpired`, 즉시 publish 실패의 `markFailed`를 호출합니다. `DeviceCommandAckHandler`는 `markAcknowledged`, `markExecuted`와 장치가 보고한 FAILED/EXPIRED를 실제로 적용합니다. V2 migration은 MQTT 이력이 없는 legacy row를 `EXPIRED`로 전환합니다.
 
-다음 Subscriber PR은 reconnect 후 ACK/status subscription과 subscription readiness, strict payload/topic/deviceId 검증, ACK state transition, optimistic-lock 재평가, DeviceStatus 저장을 연결합니다. PUBLISHED crash window와 FAILED/EXPIRED command의 observation marker reconciliation은 그 다음 reconciliation PR 책임입니다. 이번 단계에서는 outbox/inbox, publish retry, 다중 Backend 인스턴스, broker 인증/TLS와 장애 복구를 해결하지 않습니다. 실제 GPIO 실행 코드, AI 모델과 classCode별 위험 정책도 구현하지 않습니다.
+다음 reconciliation PR은 PUBLISHED crash window, PUBLISHED/ACKNOWLEDGED timeout과 FAILED/EXPIRED command의 observation marker를 처리합니다. 현재는 outbox/inbox, publish retry, 다중 Backend 인스턴스, broker 인증/TLS와 장애 복구를 해결하지 않습니다. 실제 GPIO 실행 코드, AI 모델과 classCode별 위험 정책도 구현하지 않습니다.
