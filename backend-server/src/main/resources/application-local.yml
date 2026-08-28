@@ -11,3 +11,4 @@ animalguard:
   device-control:
     camera-device-mappings:
       cam-001: pi-001
+      piseong: pi-001
