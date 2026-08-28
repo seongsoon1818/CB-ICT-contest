@@ -110,7 +110,6 @@ MQTT_PROXY_PID=$!
 
 (
   cd "$REPOSITORY_ROOT/raspberry-pi/mqtt-simulator"
-  # This Mock E2E exercises the full observation lifecycle independently of the production HIGH-only gate.
   exec env \
     MQTT_HOST=127.0.0.1 \
     MQTT_PORT="$MQTT_HOST_PORT" \
@@ -122,6 +121,7 @@ MQTT_PROXY_PID=$!
 ) >"$MQTT_SIMULATOR_LOG" 2>&1 &
 MQTT_SIMULATOR_PID=$!
 
+# This Mock E2E exercises the full observation lifecycle independently of the production HIGH-only gate.
 (
   exec env \
     SPRING_PROFILES_ACTIVE=local \
