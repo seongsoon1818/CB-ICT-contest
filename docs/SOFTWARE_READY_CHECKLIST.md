@@ -18,7 +18,7 @@
 - [ ] `RESPONSE_MIN_DETECTION_CONFIDENCE`를 검증 evidence로 확정합니다.
 - [x] 이 detector는 classifier를 사용하지 않으며 `classifierVersion`과 `classificationConfidence`를 null로 유지합니다. `RESPONSE_MIN_CLASSIFICATION_CONFIDENCE`는 설정하지 않습니다.
 - [ ] class score, count/confidence score와 LOW/MEDIUM/HIGH risk 경계를 승인합니다.
-- [ ] 필요할 때만 `RESPONSE_MIN_RISK_LEVEL`을 설정합니다.
+- [x] 자동 대응의 기본 `RESPONSE_MIN_RISK_LEVEL`을 `HIGH`로 고정합니다. LOW/MEDIUM은 감사 기록을 저장하되 response-negative로 처리합니다.
 - [x] 실제 `.pt`를 로드한 `/health/ready`가 `inference=model`, `runtime=ultralytics-8.4.125`, bundle/model version을 반환합니다.
 - [x] synthetic JPEG의 실제 model application smoke가 성공했습니다. 이 결과는 연결 경로만 검증하며 `RISK_POLICY_CONFIRMED=true`와 `RESPONSE_POLICY_ENABLED=true`의 승인은 별도입니다.
 

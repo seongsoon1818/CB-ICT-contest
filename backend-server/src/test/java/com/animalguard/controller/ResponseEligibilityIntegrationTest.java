@@ -37,7 +37,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "animalguard.actuation.enabled=true",
         "animalguard.actuation.risk-policy-confirmed=true",
         "animalguard.response-policy.enabled=true",
-        "animalguard.response-policy.allowed-class-codes=MAGPIE",
+        "animalguard.response-policy.allowed-class-codes=MAGPIE,UNKNOWN",
         "animalguard.response-policy.minimum-detection-confidence=0.8"
 })
 @AutoConfigureMockMvc
@@ -73,7 +73,7 @@ class ResponseEligibilityIntegrationTest {
     void keepsAuditButTreatsDisallowedDetectionAsResponseNegative(CapturedOutput output) throws Exception {
         String eventId = "15356786-9588-4db4-a0fe-f8acd6300901";
 
-        perform(eventId, "det-ineligible", "UNKNOWN", 0.99, 0)
+        perform(eventId, "det-ineligible", "SPARROW", 0.99, 0)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.riskScore", is(20)))
                 .andExpect(jsonPath("$.riskLevel", is("LOW")))
@@ -90,27 +90,59 @@ class ResponseEligibilityIntegrationTest {
                 .contains("totalDetections=1")
                 .contains("eligibleDetections=0")
                 .contains("responsePolicyEnabled=true")
-                .contains("minimumRiskLevel=null")
+                .contains("minimumRiskLevel=HIGH")
                 .contains("animalPresent=false")
                 .doesNotContain("det-ineligible")
                 .doesNotContain("\"bbox\"");
     }
 
     @Test
-    void eligibleDetectionStartsObservationAndIneligibleDetectionsEndIt() throws Exception {
-        perform("15356786-9588-4db4-a0fe-f8acd6300902", "det-start", "MAGPIE", 0.95, 0)
+    void allowedLowRiskDetectionRemainsAuditableWithoutStartingObservation() throws Exception {
+        perform("15356786-9588-4db4-a0fe-f8acd6300902", "det-low-risk", "UNKNOWN", 0.99, 0)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.riskScore", is(20)))
+                .andExpect(jsonPath("$.riskLevel", is("LOW")))
+                .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")));
+
+        assertThat(eventRepository.count()).isEqualTo(1);
+        assertThat(detectionRepository.count()).isEqualTo(1);
+        assertThat(riskDecisionRepository.count()).isEqualTo(1);
+        assertThat(commandRepository.count()).isZero();
+        assertThat(observationRepository.findByCameraId("cam-001").orElseThrow().getPresenceState())
+                .isEqualTo(AnimalPresenceState.IDLE);
+    }
+
+    @Test
+    void allowedMediumRiskDetectionRemainsAuditableWithoutStartingObservation() throws Exception {
+        perform("15356786-9588-4db4-a0fe-f8acd6300903", "det-medium-risk", "MAGPIE", 0.95, 0)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.riskScore", is(45)))
                 .andExpect(jsonPath("$.riskLevel", is("MEDIUM")))
+                .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")));
+
+        assertThat(eventRepository.count()).isEqualTo(1);
+        assertThat(detectionRepository.count()).isEqualTo(1);
+        assertThat(riskDecisionRepository.count()).isEqualTo(1);
+        assertThat(commandRepository.count()).isZero();
+        assertThat(observationRepository.findByCameraId("cam-001").orElseThrow().getPresenceState())
+                .isEqualTo(AnimalPresenceState.IDLE);
+    }
+
+    @Test
+    void allowedHighRiskDetectionStartsObservationAndLowRiskDetectionsEndIt() throws Exception {
+        performHighRisk("15356786-9588-4db4-a0fe-f8acd6300904", 0)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.riskScore", is(70)))
+                .andExpect(jsonPath("$.riskLevel", is("HIGH")))
                 .andExpect(jsonPath("$.commandOutcome", is("CREATED")));
 
         assertThat(observationRepository.findByCameraId("cam-001").orElseThrow().getPresenceState())
                 .isEqualTo(AnimalPresenceState.PRESENT);
 
-        perform("15356786-9588-4db4-a0fe-f8acd6300903", "det-miss-1", "UNKNOWN", 0.99, 1)
+        perform("15356786-9588-4db4-a0fe-f8acd6300905", "det-miss-1", "UNKNOWN", 0.99, 1)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")));
-        perform("15356786-9588-4db4-a0fe-f8acd6300904", "det-miss-2", "UNKNOWN", 0.99, 3)
+        perform("15356786-9588-4db4-a0fe-f8acd6300906", "det-miss-2", "UNKNOWN", 0.99, 3)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.commandOutcome", is("NOT_REQUESTED")));
 
@@ -123,7 +155,7 @@ class ResponseEligibilityIntegrationTest {
 
     @Test
     void lowDetectionConfidenceRemainsAuditableWithoutStartingObservation() throws Exception {
-        perform("15356786-9588-4db4-a0fe-f8acd6300905", "det-low-confidence", "MAGPIE", 0.79, 0)
+        perform("15356786-9588-4db4-a0fe-f8acd6300907", "det-low-confidence", "MAGPIE", 0.79, 0)
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.riskScore", is(25)))
                 .andExpect(jsonPath("$.riskLevel", is("LOW")))
@@ -168,6 +200,49 @@ class ResponseEligibilityIntegrationTest {
                         classCode,
                         detectionConfidence
                 )));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions performHighRisk(
+            String eventId,
+            long capturedAtOffsetSeconds
+    ) throws Exception {
+        return mockMvc.perform(post("/api/v1/detection/events")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {
+                          "eventId": "%s",
+                          "cameraId": "cam-001",
+                          "capturedAt": "%s",
+                          "image": {"width": 1280, "height": 720},
+                          "model": {"detectorVersion": "animal-detector-v1", "classifierVersion": null},
+                          "detections": [
+                            {
+                              "detectionId": "det-high-1",
+                              "trackId": null,
+                              "classCode": "MAGPIE",
+                              "detectionConfidence": 0.95,
+                              "classificationConfidence": null,
+                              "bbox": {"x": 100, "y": 200, "width": 50, "height": 60}
+                            },
+                            {
+                              "detectionId": "det-high-2",
+                              "trackId": null,
+                              "classCode": "MAGPIE",
+                              "detectionConfidence": 0.95,
+                              "classificationConfidence": null,
+                              "bbox": {"x": 200, "y": 200, "width": 50, "height": 60}
+                            },
+                            {
+                              "detectionId": "det-high-3",
+                              "trackId": null,
+                              "classCode": "MAGPIE",
+                              "detectionConfidence": 0.95,
+                              "classificationConfidence": null,
+                              "bbox": {"x": 300, "y": 200, "width": 50, "height": 60}
+                            }
+                          ]
+                        }
+                        """.formatted(eventId, BASE.plusSeconds(capturedAtOffsetSeconds))));
     }
 
     @TestConfiguration(proxyBeanMethods = false)
