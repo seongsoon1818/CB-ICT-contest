@@ -74,7 +74,17 @@ animalguard:
     camera-device-mappings: {}
   risk:
     class-scores:
-      MAGPIE: 30
+      WILD_BOAR: 70
+      WATER_DEER: 70
+      MAGPIE: 70
+      COMMON_RAVEN: 40
+      TREE_SPARROW: 40
+      EURASIAN_RED_SQUIRREL: 40
+      MALLARD: 10
+      CHIPMUNK: 0
+      RACCOON_DOG: 0
+      KOREAN_HARE: 0
+      ROE_DEER: 0
       UNKNOWN: 0
     count-threshold: 3
     count-score: 20
