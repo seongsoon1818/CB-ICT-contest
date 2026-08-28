@@ -1,6 +1,11 @@
 from app.inference import InferenceEngine, MockInference
 from app.model_bundle import ModelBundleLoader
 from app.settings import Settings
+from app.ultralytics_inference import (
+    ULTRALYTICS_OUTPUT_ADAPTER,
+    ULTRALYTICS_RUNTIME,
+    UltralyticsInference,
+)
 
 
 class InferenceEngineLoadError(RuntimeError):
@@ -17,6 +22,12 @@ def create_inference_engine(settings: Settings) -> InferenceEngine:
         )
 
     bundle = ModelBundleLoader().load(settings.model_bundle_dir)
+    if (
+        bundle.manifest.runtime == ULTRALYTICS_RUNTIME
+        and bundle.manifest.output_adapter == ULTRALYTICS_OUTPUT_ADAPTER
+    ):
+        return UltralyticsInference(bundle)
+
     raise InferenceEngineLoadError(
         "No runtime adapter is implemented for "
         f"runtime={bundle.manifest.runtime} "

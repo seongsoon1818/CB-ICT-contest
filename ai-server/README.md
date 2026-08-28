@@ -2,7 +2,7 @@
 
 Python 3.11과 FastAPI 기반의 AI Server입니다. JPEG 한 프레임을 검증해 독립적인 RGB 픽셀 이미지로 디코딩한 뒤, 선택된 inference engine의 결과와 metadata를 AnimalGuard Detection Event v1으로 만들어 Spring Backend에 전달합니다.
 
-기본 Mock engine과 모델 번들 검증·lifecycle 경계를 제공합니다. 운영 모델 runtime과 output adapter는 아직 확정되지 않아 실제 모델 adapter는 구현하지 않았습니다. 위험도 계산, 이미지 저장, 재시도는 수행하지 않습니다.
+기본 Mock engine과 모델 번들 검증·lifecycle 경계를 제공하며, `ultralytics-8.4.125` runtime과 `ultralytics-yolo-detect-v1` output adapter 조합의 detector-only 모델을 지원합니다. 위험도 계산, 이미지 저장, 재시도는 수행하지 않습니다.
 
 ## 실행 준비
 
@@ -44,7 +44,7 @@ export INFERENCE_MODE=model
 export MODEL_BUNDLE_DIR=/opt/animalguard/models/current
 ```
 
-현재는 운영 runtime·output adapter가 미확정이므로 유효한 bundle도 실제 runtime adapter 단계에서 명시적으로 로드 실패합니다. 이때 Mock으로 fallback하지 않습니다. 필요한 결정은 GitHub 이슈 #16에서 추적합니다.
+지원 조합은 manifest의 `runtime=ultralytics-8.4.125`, `outputAdapter=ultralytics-yolo-detect-v1`입니다. 둘 중 하나라도 다르거나 bundle·checkpoint 검증 또는 모델 로딩이 실패하면 ready/analyze를 503으로 유지하며 Mock으로 fallback하지 않습니다. 제공된 11-class checkpoint의 추적 가능한 metadata와 bundle 조립 절차는 `models/README.md`에 있습니다.
 
 서버 실행:
 
@@ -73,6 +73,19 @@ inference engine이 준비되고 `BACKEND_BASE_URL`이 설정돼 있으면 `200 
   "runtime": "mock",
   "bundleVersion": null,
   "detectorVersion": "mock-animal-detector-v1",
+  "classifierVersion": null
+}
+```
+
+실제 Wildlife bundle이 준비된 model mode에서는 다음 metadata가 노출됩니다.
+
+```json
+{
+  "status": "READY",
+  "inference": "model",
+  "runtime": "ultralytics-8.4.125",
+  "bundleVersion": "2026-08-24.7e4f5549",
+  "detectorVersion": "sha256:7e4f5549f40b844f2156c31739894e1a8cbbd33f4ef59d6d3f0b25e555fc4572",
   "classifierVersion": null
 }
 ```
@@ -128,7 +141,11 @@ Content-Type 비교 시 대소문자와 `;` 뒤 media type parameter는 정규�
 - detector version은 `mock-animal-detector-v1`입니다.
 - 전체 디코딩 전에 40,000,000 픽셀 상한을 적용합니다. 8K UHD 이미지는 허용 범위에 포함됩니다.
 
-이 구현에는 YOLO/PyTorch 모델, classifier, Raspberry Pi 카메라, MQTT/GPIO, 이미지 저장, queue 또는 위험도 판단이 포함되지 않습니다. 위험도와 DeviceCommand는 Backend가 결정합니다.
+Mock engine에는 YOLO/PyTorch 모델이 포함되지 않습니다. Model engine은 detector 결과만 Detection Event로 변환하며 classifier, Raspberry Pi 카메라, MQTT/GPIO, 이미지 저장, queue 또는 위험도 판단을 포함하지 않습니다. 위험도와 DeviceCommand는 Backend가 결정합니다.
+
+AI팀 전달물 중 별도 FastAPI API, SQLite history, ROI 필터와 `risk_rules.json`의 OFF/WEAK/MEDIUM/STRONG 선택 로직은 연결하지 않습니다. 기존 AI Server HTTP 계약을 유지하고, 물리 동작 정책의 단일 소스는 계속 Backend입니다.
+
+Ultralytics가 반환한 post-NMS box 중 confidence 내림차순 상위 100개만 Detection Event에 포함합니다. bbox는 JPEG 경계로 clamp하고 면적이 0이면 제외합니다. class map에 없는 runtime class ID, malformed result, 비정상 confidence 또는 predict 실패는 빈 탐지나 `UNKNOWN`으로 바꾸지 않고 inference 오류로 처리합니다.
 
 ## 모델 로딩 lifecycle
 
@@ -153,4 +170,4 @@ python -c "from app.main import app; print(app.title)"
 bash scripts/e2e/animalguard_mock_e2e.sh
 ```
 
-이 경로는 JPEG decode, MockInference, Backend 전달과 후속 MQTT 상태 전이를 검증하지만 model bundle, 실제 runtime/output adapter, class list 또는 실제 추론 품질을 검증하지 않습니다. 실제 model 연결 전에는 `models/README.md`와 `docs/SOFTWARE_READY_CHECKLIST.md`의 입력을 모두 확정해야 하며 model mode 실패를 Mock으로 fallback하지 않습니다.
+이 경로는 JPEG decode, MockInference, Backend 전달과 후속 MQTT 상태 전이를 검증하지만 실제 model bundle이나 추론 품질을 검증하지 않습니다. Model adapter 단위 테스트와 외부 `.pt`를 사용한 model-mode smoke는 별도 증거이며, synthetic JPEG smoke만으로 실제 야생동물 정확도나 작동 정책을 승인하지 않습니다. 남은 입력은 `models/README.md`와 `docs/SOFTWARE_READY_CHECKLIST.md`에서 확인합니다.
