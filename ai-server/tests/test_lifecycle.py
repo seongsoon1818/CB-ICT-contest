@@ -1,12 +1,13 @@
 import json
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app.inference import DecodedFrame, InferenceMetadata
+from app.inference import DecodedFrame, InferenceMetadata, InferenceRuntimeError
 from app.main import create_app
 from app.model_bundle import ModelBundleLoader
 from app.schemas import DetectionEvent
@@ -33,6 +34,12 @@ class FakeInferenceEngine:
 
     def close(self) -> None:
         self.close_count += 1
+
+
+class FailingRuntimeInferenceEngine(FakeInferenceEngine):
+    def analyze(self, frame: DecodedFrame):
+        self.analyze_count += 1
+        raise InferenceRuntimeError("secret runtime failure")
 
 
 class RecordingBackendClient:
@@ -165,6 +172,35 @@ def test_model_load_failure_keeps_live_up_and_rejects_ready_and_analyze() -> Non
     assert "secret failure" not in response.text
 
 
+def test_model_runtime_failure_keeps_live_up_and_disables_ready_and_analyze() -> None:
+    engine = FailingRuntimeInferenceEngine(model_metadata())
+    backend = RecordingBackendClient()
+    application = create_app(
+        Settings(
+            backend_base_url="http://backend.example",
+            inference_mode="model",
+            model_bundle_dir=Path("/unused/by/fake"),
+        ),
+        backend_client=backend,
+        inference_engine_factory=lambda settings: engine,
+    )
+
+    with TestClient(application, raise_server_exceptions=False) as client:
+        failed = analyze(client)
+        live = client.get("/health/live")
+        ready = client.get("/health/ready")
+        rejected = analyze(client)
+
+    assert failed.status_code == 503
+    assert live.status_code == 200
+    assert live.json() == {"status": "UP"}
+    assert ready.status_code == 503
+    assert rejected.status_code == 503
+    assert "secret runtime failure" not in failed.text
+    assert backend.events == []
+    assert engine.analyze_count == 1
+
+
 def test_invalid_model_bundle_does_not_fall_back_to_mock(tmp_path: Path) -> None:
     invalid_bundle = tmp_path / "invalid-bundle"
     invalid_bundle.mkdir()
@@ -192,14 +228,39 @@ def test_default_model_factory_validates_bundle_only_once(
     monkeypatch,
 ) -> None:
     load_count = 0
+    adapter_count = 0
+    engine = FakeInferenceEngine(
+        InferenceMetadata(
+            mode="model",
+            runtime="ultralytics-8.4.125",
+            bundle_version="2026-08-24.7e4f5549",
+            detector_version="sha256:7e4f5549",
+            classifier_version=None,
+        )
+    )
 
     class RecordingLoader:
         def load(self, directory: Path):
             nonlocal load_count
             load_count += 1
-            return object()
+            return SimpleNamespace(
+                manifest=SimpleNamespace(
+                    runtime="ultralytics-8.4.125",
+                    output_adapter="ultralytics-yolo-detect-v1",
+                )
+            )
+
+    def recording_adapter(bundle):
+        nonlocal adapter_count
+        adapter_count += 1
+        return engine
 
     monkeypatch.setattr("app.engine_factory.ModelBundleLoader", RecordingLoader)
+    monkeypatch.setattr(
+        "app.engine_factory.UltralyticsInference",
+        recording_adapter,
+        raising=False,
+    )
     application = create_app(
         Settings(
             backend_base_url="http://backend.example",
@@ -214,8 +275,10 @@ def test_default_model_factory_validates_bundle_only_once(
         second = analyze(client)
 
     assert load_count == 1
-    assert first.status_code == 503
-    assert second.status_code == 503
+    assert adapter_count == 1
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert engine.close_count == 1
 
 
 def write_bundle(directory: Path, version: str) -> None:

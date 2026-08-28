@@ -14,6 +14,7 @@ from app.frame_evidence import RollingFrameEvidenceStore
 from app.inference import (
     FrameTooLargeError,
     InferenceEngine,
+    InferenceRuntimeError,
     InvalidJpegError,
     decode_jpeg,
 )
@@ -170,6 +171,19 @@ def create_app(
 
         try:
             metadata = inference.metadata
+            try:
+                detections = inference.analyze(decoded_frame)
+            except InferenceRuntimeError as error:
+                application.state.inference_engine = None
+                application.state.inference_load_error = error
+                logger.exception(
+                    "Inference execution failed: mode=%s",
+                    app_settings.inference_mode,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Inference engine failed",
+                ) from error
             event = DetectionEvent(
                 eventId=uuid4(),
                 cameraId=cameraId,
@@ -182,7 +196,7 @@ def create_app(
                     detectorVersion=metadata.detector_version,
                     classifierVersion=metadata.classifier_version,
                 ),
-                detections=inference.analyze(decoded_frame),
+                detections=detections,
             )
             if configured_backend_client is None:
                 raise HTTPException(

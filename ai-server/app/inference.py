@@ -8,7 +8,6 @@ from PIL import Image, UnidentifiedImageError
 from app.schemas import Bbox, Detection
 from app.settings import MockResult
 
-
 DETECTOR_VERSION = "mock-animal-detector-v1"
 MOCK_CLASS_CODE = "MAGPIE"
 MAX_IMAGE_PIXELS = 40_000_000
@@ -40,6 +39,10 @@ class InferenceEngine(Protocol):
     def analyze(self, frame: DecodedFrame) -> list[Detection]: ...
 
     def close(self) -> None: ...
+
+
+class InferenceRuntimeError(RuntimeError):
+    """Raised when a loaded inference engine cannot complete a request."""
 
 
 class InvalidJpegError(ValueError):

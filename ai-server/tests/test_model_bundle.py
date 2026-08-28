@@ -7,7 +7,6 @@ from jsonschema import Draft202012Validator
 
 from app.model_bundle import ModelBundleError, ModelBundleLoader
 
-
 MODELS_DIRECTORY = Path(__file__).resolve().parents[2] / "models"
 
 
@@ -309,7 +308,78 @@ def test_repository_contract_schemas_are_valid_and_accept_examples() -> None:
 
     Draft202012Validator.check_schema(manifest_schema)
     Draft202012Validator.check_schema(class_map_schema)
-    assert list(Draft202012Validator(manifest_schema).iter_errors(valid_manifest())) == []
+    assert list(
+        Draft202012Validator(manifest_schema).iter_errors(valid_manifest())
+    ) == []
     assert list(
         Draft202012Validator(class_map_schema).iter_errors(class_map_example)
     ) == []
+
+
+def test_wildlife_checkpoint_metadata_matches_verified_artifact() -> None:
+    metadata_directory = (
+        MODELS_DIRECTORY
+        / "bundle-metadata"
+        / "wildlife-yolov8n-11class"
+    )
+    manifest = json.loads(
+        (metadata_directory / "model-manifest.json").read_text(encoding="utf-8")
+    )
+    class_map = json.loads(
+        (metadata_directory / "classes.json").read_text(encoding="utf-8")
+    )
+    manifest_schema = json.loads(
+        (MODELS_DIRECTORY / "model-manifest.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    class_map_schema = json.loads(
+        (MODELS_DIRECTORY / "class-map.schema.json").read_text(encoding="utf-8")
+    )
+
+    Draft202012Validator(manifest_schema).validate(manifest)
+    Draft202012Validator(class_map_schema).validate(class_map)
+    assert manifest == {
+        "schemaVersion": "animalguard-model-bundle-v1",
+        "bundleVersion": "2026-08-24.7e4f5549",
+        "runtime": "ultralytics-8.4.125",
+        "modelApiVersion": "animalguard-detection-v1",
+        "outputAdapter": "ultralytics-yolo-detect-v1",
+        "detector": {
+            "file": "wildlife_yolov8n_11class.pt",
+            "version": (
+                "sha256:"
+                "7e4f5549f40b844f2156c31739894e1a8cbbd33f4ef59d6d3f0b25e555fc4572"
+            ),
+            "inputWidth": 640,
+            "inputHeight": 640,
+            "colorSpace": "RGB",
+            "resizeMode": "letterbox",
+            "confidenceThreshold": 0.6,
+            "nmsThreshold": 0.7,
+        },
+        "classifier": None,
+        "classMapFile": "classes.json",
+        "unknownClassCode": "UNKNOWN",
+    }
+    assert class_map == {
+        "schemaVersion": "animalguard-class-map-v1",
+        "classes": [
+            {"id": 0, "classCode": "MALLARD"},
+            {"id": 1, "classCode": "COMMON_RAVEN"},
+            {"id": 2, "classCode": "TREE_SPARROW"},
+            {"id": 3, "classCode": "MAGPIE"},
+            {"id": 4, "classCode": "CHIPMUNK"},
+            {"id": 5, "classCode": "RACCOON_DOG"},
+            {"id": 6, "classCode": "WILD_BOAR"},
+            {"id": 7, "classCode": "EURASIAN_RED_SQUIRREL"},
+            {"id": 8, "classCode": "WATER_DEER"},
+            {"id": 9, "classCode": "KOREAN_HARE"},
+            {"id": 10, "classCode": "ROE_DEER"},
+        ],
+        "unknownClassCode": "UNKNOWN",
+    }
+    assert (metadata_directory / "SHA256SUMS").read_text(encoding="ascii") == (
+        "7e4f5549f40b844f2156c31739894e1a8cbbd33f4ef59d6d3f0b25e555fc4572"
+        "  wildlife_yolov8n_11class.pt\n"
+    )
