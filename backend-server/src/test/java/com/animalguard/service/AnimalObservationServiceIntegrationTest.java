@@ -91,16 +91,16 @@ class AnimalObservationServiceIntegrationTest {
         assertThat(results).extracting(AnimalObservationResult::trigger).containsExactly(
                 ObservationTrigger.FIRST_DETECTION,
                 ObservationTrigger.NONE,
-                ObservationTrigger.PERSISTENCE_REACHED,
+                ObservationTrigger.NONE,
                 ObservationTrigger.NONE,
                 ObservationTrigger.NONE,
                 ObservationTrigger.NONE,
                 ObservationTrigger.DISAPPEARANCE_CONFIRMED
         );
         assertThat(results).extracting(AnimalObservationResult::commandType).containsExactly(
-                DeviceCommandType.SOUND_ALERT,
-                null,
                 DeviceCommandType.DETERRENT_FULL,
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -108,7 +108,6 @@ class AnimalObservationServiceIntegrationTest {
         );
         assertThat(commandRepository.findAll()).extracting(command -> command.getCommandType())
                 .containsExactly(
-                        DeviceCommandType.SOUND_ALERT,
                         DeviceCommandType.DETERRENT_FULL,
                         DeviceCommandType.STOP_DETERRENT
                 );
@@ -118,15 +117,15 @@ class AnimalObservationServiceIntegrationTest {
     }
 
     @Test
-    void endsSessionWithoutStopWhenFullDeterrentWasNeverCreated() {
+    void stopsDeterrentWhenRiskFallsBelowEligibility() {
         process("event-short-positive", 0, true);
         process("event-short-empty-1", 1, false);
         AnimalObservationResult result = process("event-short-empty-3", 3, false);
 
         assertThat(result.trigger()).isEqualTo(ObservationTrigger.DISAPPEARANCE_CONFIRMED);
-        assertThat(result.commandDecision().outcome()).isEqualTo(CommandOutcome.NOT_REQUESTED);
+        assertThat(result.commandDecision().outcome()).isEqualTo(CommandOutcome.CREATED);
         assertThat(commandRepository.findAll()).extracting(command -> command.getCommandType())
-                .containsExactly(DeviceCommandType.SOUND_ALERT);
+                .containsExactly(DeviceCommandType.DETERRENT_FULL, DeviceCommandType.STOP_DETERRENT);
         assertThat(observationRepository.findByCameraId("cam-001").orElseThrow().getPresenceState())
                 .isEqualTo(AnimalPresenceState.IDLE);
     }
@@ -146,16 +145,16 @@ class AnimalObservationServiceIntegrationTest {
     }
 
     @Test
-    void restartsContinuityBeforeFullDeterrentAndDoesNotRecordSuppressedSoundMarker() {
+    void keepsImmediateDeterrentAcrossLongPositiveGap() {
         process("event-continuity-first", 0, true);
         AnimalObservationResult restarted = process("event-continuity-restart", 4, true);
 
-        assertThat(restarted.trigger()).isEqualTo(ObservationTrigger.CONTINUITY_RESTARTED);
-        assertThat(restarted.commandDecision().outcome()).isEqualTo(CommandOutcome.SUPPRESSED);
+        assertThat(restarted.trigger()).isEqualTo(ObservationTrigger.NONE);
+        assertThat(restarted.commandDecision().outcome()).isEqualTo(CommandOutcome.NOT_REQUESTED);
         AnimalObservationState state = observationRepository.findByCameraId("cam-001").orElseThrow();
-        assertThat(state.getFirstDetectedAt()).isEqualTo(BASE.plusSeconds(4));
+        assertThat(state.getFirstDetectedAt()).isEqualTo(BASE);
         assertThat(state.getSoundAlertCommandId()).isNull();
-        assertThat(state.getDeterrentFullCommandId()).isNull();
+        assertThat(state.getDeterrentFullCommandId()).isNotBlank();
     }
 
     @Test
@@ -172,7 +171,7 @@ class AnimalObservationServiceIntegrationTest {
         assertThat(state.getFirstDetectedAt()).isEqualTo(BASE);
         assertThat(state.getLastDetectedAt()).isEqualTo(BASE.plusSeconds(9));
         assertThat(state.getDeterrentFullCommandId()).isNotBlank();
-        assertThat(commandRepository.count()).isEqualTo(2);
+        assertThat(commandRepository.count()).isEqualTo(1);
     }
 
     @Test

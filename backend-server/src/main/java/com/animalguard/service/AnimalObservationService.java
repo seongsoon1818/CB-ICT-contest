@@ -291,8 +291,8 @@ public class AnimalObservationService {
                     state,
                     event,
                     cameraId,
-                    DeviceCommandType.SOUND_ALERT,
-                    properties.soundAlertDurationMs(),
+                    DeviceCommandType.DETERRENT_FULL,
+                    properties.deterrentFullDurationMs(),
                     FIRST_DETECTION_REASON,
                     ObservationTrigger.FIRST_DETECTION,
                     now
@@ -309,8 +309,8 @@ public class AnimalObservationService {
                     state,
                     event,
                     cameraId,
-                    DeviceCommandType.SOUND_ALERT,
-                    properties.soundAlertDurationMs(),
+                    DeviceCommandType.DETERRENT_FULL,
+                    properties.deterrentFullDurationMs(),
                     FIRST_DETECTION_REASON,
                     ObservationTrigger.FIRST_DETECTION,
                     now
@@ -338,8 +338,8 @@ public class AnimalObservationService {
                     state,
                     event,
                     cameraId,
-                    DeviceCommandType.SOUND_ALERT,
-                    properties.soundAlertDurationMs(),
+                    DeviceCommandType.DETERRENT_FULL,
+                    properties.deterrentFullDurationMs(),
                     FIRST_DETECTION_REASON,
                     ObservationTrigger.CONTINUITY_RESTARTED,
                     now
@@ -367,8 +367,8 @@ public class AnimalObservationService {
                     state,
                     event,
                     cameraId,
-                    DeviceCommandType.SOUND_ALERT,
-                    properties.soundAlertDurationMs(),
+                    DeviceCommandType.DETERRENT_FULL,
+                    properties.deterrentFullDurationMs(),
                     FIRST_DETECTION_REASON,
                     ObservationTrigger.FIRST_DETECTION,
                     now
@@ -389,16 +389,6 @@ public class AnimalObservationService {
         if (absenceStartedAt == null
                 || Duration.between(absenceStartedAt, capturedAt).compareTo(properties.absenceGrace()) < 0) {
             return result(state, ObservationTrigger.NONE, null, CommandDecision.notRequested());
-        }
-
-        if (state.getDeterrentFullCommandId() == null) {
-            state.resetToIdle(capturedAt, now);
-            return result(
-                    state,
-                    ObservationTrigger.DISAPPEARANCE_CONFIRMED,
-                    null,
-                    CommandDecision.notRequested()
-            );
         }
 
         AnimalObservationResult stopResult = requestAndRecord(
