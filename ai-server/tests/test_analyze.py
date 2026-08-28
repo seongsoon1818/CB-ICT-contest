@@ -1,4 +1,5 @@
 import json
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from io import BytesIO
@@ -15,22 +16,26 @@ from app.backend_client import BackendConflict, BackendUnavailable
 from app.inference import DecodedFrame
 from app.main import MAX_JPEG_BYTES, create_app
 from app.schemas import DetectionEvent
-from app.settings import Settings
+from app.settings import FrameEvidenceSettings, Settings
 
 
 class RecordingBackendClient:
     def __init__(self) -> None:
         self.event: DetectionEvent | None = None
+        self.response: dict[str, Any] | None = None
 
     async def send_detection_event(
         self, event: DetectionEvent
     ) -> dict[str, Any]:
         self.event = event
-        return {
+        self.response = {
             "eventId": str(event.eventId),
             "riskScore": 50,
             "riskLevel": "MEDIUM",
+            "commandOutcome": "NOT_REQUESTED",
+            "commandBlockers": [],
         }
+        return self.response
 
 
 class FailingBackendClient:
@@ -41,6 +46,25 @@ class FailingBackendClient:
         self, event: DetectionEvent
     ) -> dict[str, Any]:
         raise self._error
+
+
+class RecordingFrameEvidenceStore:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.calls: list[
+            tuple[bytes, DetectionEvent, dict[str, Any]]
+        ] = []
+        self._error = error
+
+    def record(
+        self,
+        frame_bytes: bytes,
+        event: DetectionEvent,
+        backend_analysis: dict[str, Any],
+    ) -> bool:
+        self.calls.append((frame_bytes, event, backend_analysis))
+        if self._error is not None:
+            raise self._error
+        return True
 
 
 def make_jpeg(width: int = 1280, height: int = 720) -> bytes:
@@ -285,3 +309,106 @@ def test_analyze_closes_decoded_image(
     assert response.status_code == 200
     with pytest.raises(ValueError, match="closed image"):
         image.getpixel((0, 0))
+
+
+def test_successful_backend_response_records_exact_frame_and_event() -> None:
+    frame_bytes = make_jpeg(320, 240)
+    backend_client = RecordingBackendClient()
+    evidence_store = RecordingFrameEvidenceStore()
+    app = create_app(
+        Settings(backend_base_url="http://backend.example"),
+        backend_client=backend_client,
+        frame_evidence_store=evidence_store,
+    )
+
+    with TestClient(app) as client:
+        response = analyze(client, frame_bytes)
+
+    assert response.status_code == 200
+    assert backend_client.event is not None
+    assert backend_client.response is not None
+    assert evidence_store.calls == [
+        (frame_bytes, backend_client.event, backend_client.response)
+    ]
+
+
+def test_backend_failure_does_not_record_frame_evidence() -> None:
+    evidence_store = RecordingFrameEvidenceStore()
+    app = create_app(
+        Settings(backend_base_url="http://backend.example"),
+        backend_client=FailingBackendClient(BackendUnavailable()),
+        frame_evidence_store=evidence_store,
+    )
+
+    with TestClient(app) as client:
+        response = analyze(client, make_jpeg())
+
+    assert response.status_code == 502
+    assert evidence_store.calls == []
+
+
+def test_frame_evidence_failure_is_logged_without_changing_success(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend_client = RecordingBackendClient()
+    evidence_store = RecordingFrameEvidenceStore(OSError("disk unavailable"))
+    app = create_app(
+        Settings(backend_base_url="http://backend.example"),
+        backend_client=backend_client,
+        frame_evidence_store=evidence_store,
+    )
+
+    with caplog.at_level(logging.ERROR, logger="app.main"):
+        with TestClient(app) as client:
+            response = analyze(client, make_jpeg())
+
+    assert response.status_code == 200
+    assert len(evidence_store.calls) == 1
+    assert "Frame evidence write failed" in caplog.text
+    assert "disk unavailable" in caplog.text
+
+
+def test_rolling_settings_construct_store_and_write_complete_pair(
+    tmp_path: Path,
+) -> None:
+    backend_client = RecordingBackendClient()
+    app = create_app(
+        Settings(
+            backend_base_url="http://backend.example",
+            frame_evidence=FrameEvidenceSettings(
+                mode="rolling",
+                directory=tmp_path,
+                max_files_per_camera=60,
+                min_interval_seconds=0.0,
+                max_bytes_per_camera=100 * 1024 * 1024,
+            ),
+        ),
+        backend_client=backend_client,
+    )
+
+    with TestClient(app) as client:
+        response = analyze(client, make_jpeg())
+
+    assert response.status_code == 200
+    jpeg_files = list((tmp_path / "cam-001").glob("*.jpg"))
+    assert len(jpeg_files) == 1
+    assert jpeg_files[0].with_suffix(".json").is_file()
+
+
+def test_frame_evidence_initialization_failure_stops_app_creation(
+    tmp_path: Path,
+) -> None:
+    unusable_directory = tmp_path / "not-a-directory"
+    unusable_directory.write_text("occupied", encoding="utf-8")
+
+    with pytest.raises(OSError):
+        create_app(
+            Settings(
+                backend_base_url="http://backend.example",
+                frame_evidence=FrameEvidenceSettings(
+                    mode="rolling",
+                    directory=unusable_directory,
+                ),
+            ),
+            backend_client=RecordingBackendClient(),
+        )
