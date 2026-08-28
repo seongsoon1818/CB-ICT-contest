@@ -58,15 +58,9 @@ def create_app(
         configured_evidence_store is None
         and app_settings.frame_evidence.mode == "rolling"
     ):
-        try:
-            configured_evidence_store = RollingFrameEvidenceStore(
-                app_settings.frame_evidence
-            )
-        except OSError:
-            logger.exception(
-                "Frame evidence initialization failed; storage is disabled"
-            )
-            configured_evidence_store = None
+        configured_evidence_store = RollingFrameEvidenceStore(
+            app_settings.frame_evidence
+        )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:

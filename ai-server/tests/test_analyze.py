@@ -395,16 +395,14 @@ def test_rolling_settings_construct_store_and_write_complete_pair(
     assert jpeg_files[0].with_suffix(".json").is_file()
 
 
-def test_frame_evidence_initialization_failure_does_not_stop_analyze(
+def test_frame_evidence_initialization_failure_stops_app_creation(
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     unusable_directory = tmp_path / "not-a-directory"
     unusable_directory.write_text("occupied", encoding="utf-8")
-    backend_client = RecordingBackendClient()
 
-    with caplog.at_level(logging.ERROR, logger="app.main"):
-        app = create_app(
+    with pytest.raises(OSError):
+        create_app(
             Settings(
                 backend_base_url="http://backend.example",
                 frame_evidence=FrameEvidenceSettings(
@@ -412,11 +410,5 @@ def test_frame_evidence_initialization_failure_does_not_stop_analyze(
                     directory=unusable_directory,
                 ),
             ),
-            backend_client=backend_client,
+            backend_client=RecordingBackendClient(),
         )
-        with TestClient(app) as client:
-            response = analyze(client, make_jpeg())
-
-    assert response.status_code == 200
-    assert backend_client.event is not None
-    assert "Frame evidence initialization failed" in caplog.text

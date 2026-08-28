@@ -84,6 +84,21 @@ def test_from_env_requires_directory_for_rolling_frame_evidence(
 
 
 @pytest.mark.parametrize(
+    "directory",
+    ["relative/frame-evidence", "<set-locally>", "/"],
+)
+def test_from_env_rejects_unsafe_rolling_frame_evidence_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    directory: str,
+) -> None:
+    monkeypatch.setenv("FRAME_EVIDENCE_MODE", "rolling")
+    monkeypatch.setenv("FRAME_EVIDENCE_DIR", directory)
+
+    with pytest.raises(ValueError, match="FRAME_EVIDENCE_DIR"):
+        Settings.from_env()
+
+
+@pytest.mark.parametrize(
     ("name", "value"),
     [
         ("FRAME_EVIDENCE_MODE", "forever"),

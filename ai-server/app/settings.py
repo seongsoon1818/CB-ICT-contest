@@ -49,6 +49,20 @@ class Settings:
                 "FRAME_EVIDENCE_DIR is required when "
                 "FRAME_EVIDENCE_MODE=rolling"
             )
+        frame_evidence_directory = (
+            Path(frame_evidence_directory_value)
+            if frame_evidence_directory_value
+            else None
+        )
+        if frame_evidence_mode == "rolling" and (
+            frame_evidence_directory is None
+            or not frame_evidence_directory.is_absolute()
+            or frame_evidence_directory.parent == frame_evidence_directory
+        ):
+            raise ValueError(
+                "FRAME_EVIDENCE_DIR must be an absolute non-root path when "
+                "FRAME_EVIDENCE_MODE=rolling"
+            )
         return cls(
             backend_base_url=backend_base_url,
             mock_result=cast(MockResult, mock_result),
@@ -60,11 +74,7 @@ class Settings:
             ),
             frame_evidence=FrameEvidenceSettings(
                 mode=cast(FrameEvidenceMode, frame_evidence_mode),
-                directory=(
-                    Path(frame_evidence_directory_value)
-                    if frame_evidence_directory_value
-                    else None
-                ),
+                directory=frame_evidence_directory,
                 max_files_per_camera=_positive_int_env(
                     "FRAME_EVIDENCE_MAX_FILES_PER_CAMERA",
                     default=60,

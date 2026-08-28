@@ -1,5 +1,6 @@
 import hashlib
 import json
+import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
@@ -115,6 +116,10 @@ def test_record_writes_exact_jpeg_and_detection_event_sidecar(
         "width": 30,
         "height": 40,
     }
+    assert stat.S_IMODE(tmp_path.stat().st_mode) == 0o700
+    assert stat.S_IMODE((tmp_path / "cam-001").stat().st_mode) == 0o700
+    assert stat.S_IMODE(jpeg_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(json_path.stat().st_mode) == 0o600
 
 
 def test_record_rate_limits_each_camera_independently(tmp_path: Path) -> None:
@@ -261,5 +266,22 @@ def test_store_rejects_symlink_evidence_root(tmp_path: Path) -> None:
 
     with pytest.raises(OSError, match="root must not be a symlink"):
         RollingFrameEvidenceStore(make_settings(evidence_root))
+
+    assert list(outside_directory.iterdir()) == []
+
+
+def test_store_rejects_symlink_camera_directory(tmp_path: Path) -> None:
+    evidence_root = tmp_path / "evidence"
+    store = RollingFrameEvidenceStore(make_settings(evidence_root))
+    outside_directory = tmp_path / "outside"
+    outside_directory.mkdir()
+    (evidence_root / "cam-001").symlink_to(
+        outside_directory,
+        target_is_directory=True,
+    )
+    event = make_event(1)
+
+    with pytest.raises(OSError, match="camera directory must not be a symlink"):
+        store.record(b"frame", event, make_backend_analysis(event))
 
     assert list(outside_directory.iterdir()) == []

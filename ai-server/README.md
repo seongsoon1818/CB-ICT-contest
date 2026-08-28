@@ -166,7 +166,9 @@ export FRAME_EVIDENCE_MAX_BYTES_PER_CAMERA=104857600
 - `FRAME_EVIDENCE_MIN_INTERVAL_SECONDS`: 같은 카메라의 확인용 저장 사이 최소 간격
 - `FRAME_EVIDENCE_MAX_BYTES_PER_CAMERA`: 카메라별 JPEG와 JSON을 합한 최대 바이트
 
-정상 JPEG 디코딩, inference, Backend 저장까지 성공한 요청만 evidence 후보가 됩니다. 카메라별 최소 간격 안에 들어온 프레임은 분석과 Backend 전달은 그대로 수행하지만 파일로 저장하지 않습니다. 새 JPEG/JSON 쌍을 원자적으로 게시한 뒤 개수 또는 용량 제한을 넘으면 가장 오래된 완전한 쌍부터 삭제합니다. 시작 시 남아 있는 임시 파일과 한쪽만 존재하는 불완전한 쌍도 정리합니다. Evidence 저장 실패는 로그에 남지만 성공한 분석 응답을 실패로 바꾸지 않습니다.
+`rolling` mode의 `FRAME_EVIDENCE_DIR`는 `<set-locally>`를 실제 값으로 교체한 절대·비-root 경로여야 합니다. 저장 디렉터리를 안전하게 초기화할 수 없으면 AI Server 시작을 실패시켜 evidence가 꺼진 채 분석이 계속되는 상태를 허용하지 않습니다.
+
+정상 JPEG 디코딩, inference, Backend 저장까지 성공한 요청만 evidence 후보가 됩니다. 카메라별 최소 간격 안에 들어온 프레임은 분석과 Backend 전달은 그대로 수행하지만 파일로 저장하지 않습니다. 새 JPEG/JSON 쌍을 원자적으로 게시한 뒤 개수 또는 용량 제한을 넘으면 가장 오래된 완전한 쌍부터 삭제합니다. 시작 시 남아 있는 임시 파일과 한쪽만 존재하는 불완전한 쌍도 정리합니다. 정상 초기화 후 개별 evidence 기록 실패는 로그에 남기되 이미 성공한 Backend 응답을 실패로 바꾸지 않습니다.
 
 저장 구조는 다음과 같습니다.
 
