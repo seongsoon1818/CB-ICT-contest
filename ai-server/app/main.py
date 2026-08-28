@@ -33,7 +33,12 @@ class BackendClientLike(Protocol):
 
 
 class FrameEvidenceStoreLike(Protocol):
-    def record(self, frame_bytes: bytes, event: DetectionEvent) -> bool: ...
+    def record(
+        self,
+        frame_bytes: bytes,
+        event: DetectionEvent,
+        backend_analysis: dict[str, Any],
+    ) -> bool: ...
 
 
 def create_app(
@@ -223,6 +228,7 @@ def create_app(
                         configured_evidence_store.record,
                         frame_bytes,
                         event,
+                        backend_response,
                     )
                 except Exception:
                     logger.exception(

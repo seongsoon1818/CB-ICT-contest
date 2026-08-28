@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from app.schemas import DetectionEvent
@@ -47,7 +48,12 @@ class RollingFrameEvidenceStore:
             if child.is_dir() and not child.is_symlink():
                 self._prune(child)
 
-    def record(self, frame_bytes: bytes, event: DetectionEvent) -> bool:
+    def record(
+        self,
+        frame_bytes: bytes,
+        event: DetectionEvent,
+        backend_analysis: dict[str, Any],
+    ) -> bool:
         with self._lock:
             current_monotonic = self._monotonic()
             last_saved = self._last_saved_at.get(event.cameraId)
@@ -68,6 +74,7 @@ class RollingFrameEvidenceStore:
                 stem,
                 frame_bytes,
                 event,
+                backend_analysis,
                 saved_at,
             )
             kept = self._prune(camera_directory, newest_stem=stem)
@@ -91,6 +98,7 @@ class RollingFrameEvidenceStore:
         stem: str,
         frame_bytes: bytes,
         event: DetectionEvent,
+        backend_analysis: dict[str, Any],
         saved_at: datetime,
     ) -> None:
         jpeg_path = camera_directory / f"{stem}.jpg"
@@ -104,6 +112,7 @@ class RollingFrameEvidenceStore:
             "savedAt": saved_at.isoformat().replace("+00:00", "Z"),
             "sha256": hashlib.sha256(frame_bytes).hexdigest(),
             **event.model_dump(mode="json"),
+            "backendAnalysis": backend_analysis,
         }
         json_bytes = json.dumps(
             payload,

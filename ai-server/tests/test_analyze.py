@@ -22,16 +22,20 @@ from app.settings import FrameEvidenceSettings, Settings
 class RecordingBackendClient:
     def __init__(self) -> None:
         self.event: DetectionEvent | None = None
+        self.response: dict[str, Any] | None = None
 
     async def send_detection_event(
         self, event: DetectionEvent
     ) -> dict[str, Any]:
         self.event = event
-        return {
+        self.response = {
             "eventId": str(event.eventId),
             "riskScore": 50,
             "riskLevel": "MEDIUM",
+            "commandOutcome": "NOT_REQUESTED",
+            "commandBlockers": [],
         }
+        return self.response
 
 
 class FailingBackendClient:
@@ -46,11 +50,18 @@ class FailingBackendClient:
 
 class RecordingFrameEvidenceStore:
     def __init__(self, error: Exception | None = None) -> None:
-        self.calls: list[tuple[bytes, DetectionEvent]] = []
+        self.calls: list[
+            tuple[bytes, DetectionEvent, dict[str, Any]]
+        ] = []
         self._error = error
 
-    def record(self, frame_bytes: bytes, event: DetectionEvent) -> bool:
-        self.calls.append((frame_bytes, event))
+    def record(
+        self,
+        frame_bytes: bytes,
+        event: DetectionEvent,
+        backend_analysis: dict[str, Any],
+    ) -> bool:
+        self.calls.append((frame_bytes, event, backend_analysis))
         if self._error is not None:
             raise self._error
         return True
@@ -315,7 +326,10 @@ def test_successful_backend_response_records_exact_frame_and_event() -> None:
 
     assert response.status_code == 200
     assert backend_client.event is not None
-    assert evidence_store.calls == [(frame_bytes, backend_client.event)]
+    assert backend_client.response is not None
+    assert evidence_store.calls == [
+        (frame_bytes, backend_client.event, backend_client.response)
+    ]
 
 
 def test_backend_failure_does_not_record_frame_evidence() -> None:

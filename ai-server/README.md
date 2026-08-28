@@ -162,7 +162,7 @@ frame-evidence/
     └── 20260827T010001.000000Z_<eventId>.json
 ```
 
-JPEG는 AI Server가 수신한 원본 바이트이고 JSON에는 같은 `eventId`, `cameraId`, 수신 시각, SHA-256, image/model metadata, detections와 bbox가 들어갑니다. 원본 JPEG에 bbox를 직접 그리지 않으므로 JSON과 쌍으로 대조해야 합니다. 디렉터리와 파일은 각각 실행 사용자 전용 `0700`/`0600` 권한으로 생성됩니다.
+JPEG는 AI Server가 수신한 원본 바이트입니다. JSON의 top-level `model`, `detections`, bbox는 같은 프레임의 모델 분석 결과이고, `backendAnalysis`에는 Backend가 정상 저장 후 반환한 `riskScore`, `riskLevel`, `commandOutcome`, `commandBlockers` 등의 최종 응답이 들어갑니다. JSON에는 같은 `eventId`, `cameraId`, 수신 시각, SHA-256과 image metadata도 함께 저장됩니다. 원본 JPEG에 bbox를 직접 그리지 않으므로 JSON과 쌍으로 대조해야 합니다. 개수·용량 제한으로 오래된 JPEG/JSON 쌍을 정리할 때 분석 결과도 같은 JSON과 함께 삭제되며, 영구 감사 기록은 Backend DB를 사용합니다. 디렉터리와 파일은 각각 실행 사용자 전용 `0700`/`0600` 권한으로 생성됩니다.
 
 기본값 60장과 1초 간격이면 카메라별 최근 약 1분을 볼 수 있습니다. 실제 보이는 시간 범위는 저장 간격과 성공한 분석 요청 빈도에 따라 달라집니다. Mock mode의 `MAGPIE`와 중앙 bbox는 파이프라인 확인용 고정 결과이므로 실제 모델 인식 품질의 증거가 아닙니다. 실제 모델 검증은 `INFERENCE_MODE=model`과 승인된 bundle/runtime을 적용한 뒤 수행해야 합니다.
 
