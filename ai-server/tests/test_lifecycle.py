@@ -1,8 +1,10 @@
 import json
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -11,6 +13,7 @@ from app.main import create_app
 from app.model_bundle import ModelBundleLoader
 from app.schemas import DetectionEvent
 from app.settings import Settings
+from app.ultralytics_inference import UltralyticsInferenceError
 
 
 class FakeInferenceEngine:
@@ -192,14 +195,39 @@ def test_default_model_factory_validates_bundle_only_once(
     monkeypatch,
 ) -> None:
     load_count = 0
+    adapter_count = 0
+    engine = FakeInferenceEngine(
+        InferenceMetadata(
+            mode="model",
+            runtime="ultralytics-8.4.125",
+            bundle_version="2026-08-24.7e4f5549",
+            detector_version="sha256:7e4f5549",
+            classifier_version=None,
+        )
+    )
 
     class RecordingLoader:
         def load(self, directory: Path):
             nonlocal load_count
             load_count += 1
-            return object()
+            return SimpleNamespace(
+                manifest=SimpleNamespace(
+                    runtime="ultralytics-8.4.125",
+                    output_adapter="ultralytics-yolo-detect-v1",
+                )
+            )
+
+    def recording_adapter(bundle):
+        nonlocal adapter_count
+        adapter_count += 1
+        return engine
 
     monkeypatch.setattr("app.engine_factory.ModelBundleLoader", RecordingLoader)
+    monkeypatch.setattr(
+        "app.engine_factory.UltralyticsInference",
+        recording_adapter,
+        raising=False,
+    )
     application = create_app(
         Settings(
             backend_base_url="http://backend.example",
@@ -214,8 +242,61 @@ def test_default_model_factory_validates_bundle_only_once(
         second = analyze(client)
 
     assert load_count == 1
-    assert first.status_code == 503
-    assert second.status_code == 503
+    assert adapter_count == 1
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert engine.close_count == 1
+
+
+@pytest.mark.parametrize(
+    "load_error",
+    [
+        UltralyticsInferenceError("Ultralytics runtime is not installed"),
+        UltralyticsInferenceError("Ultralytics detector could not be loaded"),
+    ],
+)
+def test_default_model_adapter_failure_remains_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    load_error: UltralyticsInferenceError,
+) -> None:
+    class SupportedBundleLoader:
+        def load(self, directory: Path):
+            return SimpleNamespace(
+                manifest=SimpleNamespace(
+                    runtime="ultralytics-8.4.125",
+                    output_adapter="ultralytics-yolo-detect-v1",
+                )
+            )
+
+    def failing_adapter(bundle):
+        raise load_error
+
+    monkeypatch.setattr(
+        "app.engine_factory.ModelBundleLoader",
+        SupportedBundleLoader,
+    )
+    monkeypatch.setattr(
+        "app.engine_factory.UltralyticsInference",
+        failing_adapter,
+    )
+    application = create_app(
+        Settings(
+            backend_base_url="http://backend.example",
+            inference_mode="model",
+            model_bundle_dir=Path("/opt/animalguard/models/current"),
+        ),
+        backend_client=RecordingBackendClient(),
+    )
+
+    with TestClient(application) as client:
+        live = client.get("/health/live")
+        ready = client.get("/health/ready")
+        response = analyze(client)
+
+    assert live.status_code == 200
+    assert ready.status_code == 503
+    assert response.status_code == 503
+    assert "mock" not in ready.text.lower()
 
 
 def write_bundle(directory: Path, version: str) -> None:

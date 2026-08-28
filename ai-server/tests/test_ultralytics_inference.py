@@ -487,3 +487,30 @@ def test_default_loader_rejects_different_ultralytics_version(
 
     with pytest.raises(UltralyticsInferenceError, match="version"):
         load_ultralytics_model(tmp_path / "detector.pt")
+
+
+def test_default_loader_reports_missing_ultralytics_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setitem(sys.modules, "ultralytics", None)
+
+    with pytest.raises(UltralyticsInferenceError, match="not installed"):
+        load_ultralytics_model(tmp_path / "detector.pt")
+
+
+def test_default_loader_wraps_checkpoint_load_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def failing_yolo(path: str) -> object:
+        raise RuntimeError("invalid checkpoint")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "ultralytics",
+        SimpleNamespace(__version__="8.4.125", YOLO=failing_yolo),
+    )
+
+    with pytest.raises(UltralyticsInferenceError, match="could not be loaded"):
+        load_ultralytics_model(tmp_path / "detector.pt")
