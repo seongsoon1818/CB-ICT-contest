@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single Paho MQTT controller for two motors, a speaker, and a camera servo."""
+"""Single Paho MQTT controller for motors, Bluetooth audio, and a camera servo."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import logging
 import os
 import signal
 import sqlite3
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -30,13 +31,15 @@ MOTOR_A_IN2_PIN = 27
 MOTOR_B_IN1_PIN = 23
 MOTOR_B_IN2_PIN = 24
 MOTOR_STANDBY_PIN = 22
-SPEAKER_PIN: int | None = None
 SERVO_PIN = 19
 
-SERVO_LEFT_VALUE = -1.0
-SERVO_RIGHT_VALUE = 1.0
-SERVO_STOP_VALUE = 0.0
+SERVO_LEFT_VALUE = -0.3
+SERVO_RIGHT_VALUE = 0.3
 SERVO_RUN_SECONDS = 0.1
+AUDIO_FILE_PATH = Path("/home/seong/CB-contest/GunShot.wav")
+AUDIO_OUTPUT_DRIVER = "pipewire"
+AUDIO_STARTUP_CHECK_SECONDS = 0.2
+AUDIO_STOP_TIMEOUT_SECONDS = 2.0
 MAX_MOTOR_DURATION_MS = 60_000
 MAX_SOUND_DURATION_MS = 60_000
 
@@ -49,9 +52,10 @@ running = True
 motor_a: Motor | None = None
 motor_b: Motor | None = None
 standby_pin: OutputDevice | None = None
-speaker: OutputDevice | None = None
 servo: Servo | None = None
+speaker_process: subprocess.Popen[bytes] | None = None
 gpio_lock = threading.Lock()
+audio_lock = threading.Lock()
 timed_action_lock = threading.Lock()
 stop_event = threading.Event()
 
@@ -93,7 +97,7 @@ def status_payload(status: str) -> dict[str, str]:
         "deviceId": DEVICE_ID,
         "status": status,
         "reportedAt": now_iso(),
-        "firmwareVersion": "mqtt-gpio-controller-v1",
+        "firmwareVersion": "mqtt-gpio-controller-v2",
     }
 
 
@@ -153,7 +157,7 @@ def publish_ack(client: mqtt.Client, ack: dict[str, Any]) -> None:
 
 
 def initialize_hardware() -> None:
-    global motor_a, motor_b, standby_pin, speaker, servo
+    global motor_a, motor_b, standby_pin, servo
     configured_pins = [
         MOTOR_A_IN1_PIN,
         MOTOR_A_IN2_PIN,
@@ -161,24 +165,17 @@ def initialize_hardware() -> None:
         MOTOR_B_IN2_PIN,
         MOTOR_STANDBY_PIN,
     ]
-    configured_pins.extend(
-        pin for pin in (SPEAKER_PIN, SERVO_PIN) if pin is not None
-    )
+    configured_pins.extend(pin for pin in (SERVO_PIN,) if pin is not None)
     if len(configured_pins) != len(set(configured_pins)):
         raise ValueError("Configured GPIO pins must be unique")
 
     motor_a = Motor(forward=MOTOR_A_IN1_PIN, backward=MOTOR_A_IN2_PIN, pwm=False)
     motor_b = Motor(forward=MOTOR_B_IN1_PIN, backward=MOTOR_B_IN2_PIN, pwm=False)
     standby_pin = OutputDevice(MOTOR_STANDBY_PIN, initial_value=False)
-    speaker = (
-        OutputDevice(SPEAKER_PIN, initial_value=False)
-        if SPEAKER_PIN is not None
-        else None
-    )
     servo = (
         Servo(
             SERVO_PIN,
-            initial_value=SERVO_STOP_VALUE,
+            initial_value=None,
         )
         if SERVO_PIN is not None
         else None
@@ -191,32 +188,77 @@ def stop_deterrent_outputs() -> None:
             motor_a.stop()
         if motor_b is not None:
             motor_b.stop()
-        if speaker is not None:
-            speaker.off()
         if standby_pin is not None:
             standby_pin.off()
+    stop_sound()
 
 
 def close_hardware() -> None:
-    global motor_a, motor_b, standby_pin, speaker, servo
+    global motor_a, motor_b, standby_pin, servo
     stop_deterrent_outputs()
     if servo is not None:
-        servo.value = SERVO_STOP_VALUE
-    for device in (servo, speaker, motor_a, motor_b, standby_pin):
+        servo.detach()
+    for device in (servo, motor_a, motor_b, standby_pin):
         if device is not None:
             device.close()
     motor_a = None
     motor_b = None
     standby_pin = None
-    speaker = None
     servo = None
 
 
 def start_sound() -> None:
-    with gpio_lock:
-        if speaker is None:
-            raise RuntimeError("SPEAKER_PIN is not configured")
-        speaker.on()
+    global speaker_process
+    with audio_lock:
+        if speaker_process is not None and speaker_process.poll() is None:
+            return
+        if not AUDIO_FILE_PATH.is_file():
+            raise RuntimeError(f"Audio file not found: {AUDIO_FILE_PATH}")
+        try:
+            process = subprocess.Popen(
+                [
+                    "mpv",
+                    "--no-video",
+                    "--loop-file=inf",
+                    f"--ao={AUDIO_OUTPUT_DRIVER}",
+                    "--no-terminal",
+                    str(AUDIO_FILE_PATH),
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError as error:
+            raise RuntimeError(
+                "mpv is not installed; install the mpv package"
+            ) from error
+        speaker_process = process
+        time.sleep(AUDIO_STARTUP_CHECK_SECONDS)
+        return_code = process.poll()
+        if return_code is not None:
+            speaker_process = None
+            raise RuntimeError(
+                "Bluetooth audio playback failed; check the audio file and "
+                f"default audio sink (mpv exit code {return_code})"
+            )
+        logging.info("Bluetooth audio loop started: %s", AUDIO_FILE_PATH)
+
+
+def stop_sound() -> None:
+    global speaker_process
+    with audio_lock:
+        process = speaker_process
+        speaker_process = None
+        if process is None:
+            return
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=AUDIO_STOP_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        logging.info("Bluetooth audio loop stopped")
 
 
 def start_deterrent_full() -> None:
@@ -227,10 +269,7 @@ def start_deterrent_full() -> None:
         time.sleep(0.01)
         motor_a.forward()
         motor_b.forward()
-        if speaker is not None:
-            speaker.on()
-        else:
-            logging.warning("DETERRENT_FULL is running without a configured speaker")
+    start_sound()
 
 
 def rotate_camera(direction_value: float) -> None:
@@ -243,7 +282,7 @@ def rotate_camera(direction_value: float) -> None:
     finally:
         with gpio_lock:
             if servo is not None:
-                servo.value = SERVO_STOP_VALUE
+                servo.detach()
 
 
 def run_timed_action(
@@ -285,22 +324,31 @@ def start_timed_command(
     command: str,
     duration_ms: Any,
 ) -> None:
-    if isinstance(duration_ms, bool) or not isinstance(duration_ms, int):
-        raise ValueError(f"{command} durationMs must be an integer")
     maximum_duration = (
         MAX_SOUND_DURATION_MS if command == "SOUND_ALERT" else MAX_MOTOR_DURATION_MS
     )
-    if not 0 < duration_ms <= maximum_duration:
-        raise ValueError(f"durationMs must be between 1 and {maximum_duration}")
+    if duration_ms is not None:
+        if isinstance(duration_ms, bool) or not isinstance(duration_ms, int):
+            raise ValueError(f"{command} durationMs must be null or an integer")
+        if not 0 < duration_ms <= maximum_duration:
+            raise ValueError(f"durationMs must be between 1 and {maximum_duration}")
     if not timed_action_lock.acquire(blocking=False):
         raise RuntimeError("Another timed GPIO action is already active")
 
     try:
         stop_event.clear()
+        logging.info(
+            "Timed action started: commandId=%s command=%s "
+            "requestedDurationMs=%s deadmanDurationMs=%s",
+            command_id,
+            command,
+            duration_ms,
+            maximum_duration,
+        )
         publish_ack(client, build_ack(command_id, "ACKNOWLEDGED"))
         threading.Thread(
             target=run_timed_action,
-            args=(client, command_id, command, duration_ms),
+            args=(client, command_id, command, maximum_duration),
             daemon=True,
             name=f"gpio-{command_id}",
         ).start()
@@ -346,13 +394,33 @@ def handle_command(client: mqtt.Client, raw_payload: bytes) -> None:
         if command == "ROTATE_CAMERA_LEFT":
             if duration_ms is not None:
                 raise ValueError("ROTATE_CAMERA_LEFT durationMs must be null")
+            logging.info(
+                "Servo command received: commandId=%s command=%s",
+                command_id,
+                command,
+            )
             rotate_camera(SERVO_LEFT_VALUE)
+            logging.info(
+                "Servo command completed: commandId=%s command=%s",
+                command_id,
+                command,
+            )
             publish_ack(client, build_ack(command_id, "EXECUTED"))
             return
         if command == "ROTATE_CAMERA_RIGHT":
             if duration_ms is not None:
                 raise ValueError("ROTATE_CAMERA_RIGHT durationMs must be null")
+            logging.info(
+                "Servo command received: commandId=%s command=%s",
+                command_id,
+                command,
+            )
             rotate_camera(SERVO_RIGHT_VALUE)
+            logging.info(
+                "Servo command completed: commandId=%s command=%s",
+                command_id,
+                command,
+            )
             publish_ack(client, build_ack(command_id, "EXECUTED"))
             return
         if command in {"SOUND_ALERT", "DETERRENT_FULL"}:
