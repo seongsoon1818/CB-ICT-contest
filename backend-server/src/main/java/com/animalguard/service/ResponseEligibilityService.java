@@ -23,7 +23,7 @@ public class ResponseEligibilityService {
         Objects.requireNonNull(assessment, "assessment must not be null");
 
         int eligibleDetections = 0;
-        if (properties.enabled() && meetsMinimumRiskLevel(assessment.level())) {
+        if (properties.enabled() && meetsMinimumRisk(assessment)) {
             eligibleDetections = (int) detections.stream()
                     .filter(this::isEligibleDetection)
                     .count();
@@ -33,6 +33,7 @@ public class ResponseEligibilityService {
                 detections.size(),
                 eligibleDetections,
                 properties.enabled(),
+                properties.minimumRiskScore(),
                 properties.minimumRiskLevel(),
                 eligibleDetections > 0
         );
@@ -55,10 +56,17 @@ public class ResponseEligibilityService {
         return minimum == null || actual.compareTo(minimum) >= 0;
     }
 
+    private boolean meetsMinimumRisk(RiskDecisionEngine.RiskAssessment assessment) {
+        Integer minimumScore = properties.minimumRiskScore();
+        return (minimumScore == null || assessment.score() >= minimumScore)
+                && meetsMinimumRiskLevel(assessment.level());
+    }
+
     public record ResponseEligibility(
             int totalDetections,
             int eligibleDetections,
             boolean responsePolicyEnabled,
+            Integer minimumRiskScore,
             RiskLevel minimumRiskLevel,
             boolean animalPresent
     ) {

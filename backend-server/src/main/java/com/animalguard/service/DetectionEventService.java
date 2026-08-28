@@ -87,7 +87,8 @@ public class DetectionEventService {
 
         log.info(
                 "Observation decision completed: eventId={}, cameraId={}, capturedAt={}, totalDetections={}, "
-                        + "eligibleDetections={}, responsePolicyEnabled={}, minimumRiskLevel={}, animalPresent={}, "
+                        + "eligibleDetections={}, responsePolicyEnabled={}, minimumRiskScore={}, "
+                        + "minimumRiskLevel={}, animalPresent={}, "
                         + "observationState={}, observationTrigger={}, commandType={}, commandOutcome={}, "
                         + "commandId={}, commandBlockers={}",
                 event.getEventId(),
@@ -96,6 +97,7 @@ public class DetectionEventService {
                 eligibility.totalDetections(),
                 eligibility.eligibleDetections(),
                 eligibility.responsePolicyEnabled(),
+                eligibility.minimumRiskScore(),
                 eligibility.minimumRiskLevel(),
                 animalPresent,
                 observationResult.presenceState(),

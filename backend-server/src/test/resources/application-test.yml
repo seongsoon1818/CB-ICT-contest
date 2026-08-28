@@ -11,6 +11,9 @@ spring:
     database-platform: org.hibernate.dialect.H2Dialect
 
 animalguard:
+  response-policy:
+    # Existing tests set their own risk-level scenarios; score-gate behavior has a focused unit test.
+    minimum-risk-score: 0
   observation:
     persistence-threshold: 5s
     absence-grace: 2s

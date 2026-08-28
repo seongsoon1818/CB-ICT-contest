@@ -4,6 +4,8 @@ import com.animalguard.domain.RiskLevel;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -24,6 +26,7 @@ public record ResponsePolicyProperties(
                 > allowedClassCodes,
         @DecimalMin("0.0") @DecimalMax("1.0") double minimumDetectionConfidence,
         @DecimalMin("0.0") @DecimalMax("1.0") Double minimumClassificationConfidence,
+        @Min(0) @Max(100) Integer minimumRiskScore,
         RiskLevel minimumRiskLevel
 ) {
     public ResponsePolicyProperties {

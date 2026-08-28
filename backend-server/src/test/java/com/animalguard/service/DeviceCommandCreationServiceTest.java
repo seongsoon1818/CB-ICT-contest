@@ -391,6 +391,7 @@ class DeviceCommandCreationServiceTest {
                         responsePolicyEnabled ? java.util.Set.of("MAGPIE") : java.util.Set.of(),
                         0.0,
                         null,
+                        null,
                         null
                 ),
                 deviceControlProperties,
