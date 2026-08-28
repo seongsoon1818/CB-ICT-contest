@@ -35,6 +35,9 @@ def test_readme_documents_rolling_pairs_pruning_and_mock_limit() -> None:
     assert "오래된" in contents
     assert "Mock" in contents
     assert "실제 모델" in contents
+    assert "backendAnalysis" in contents
+    assert "riskScore" in contents
+    assert "Backend DB" in contents
 
 
 def test_repository_ignores_local_frame_evidence_directory() -> None:

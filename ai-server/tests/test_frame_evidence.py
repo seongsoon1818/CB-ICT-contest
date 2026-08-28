@@ -48,6 +48,16 @@ def make_event(
     )
 
 
+def make_backend_analysis(event: DetectionEvent) -> dict[str, object]:
+    return {
+        "eventId": str(event.eventId),
+        "riskScore": 50,
+        "riskLevel": "MEDIUM",
+        "commandOutcome": "NOT_REQUESTED",
+        "commandBlockers": [],
+    }
+
+
 def make_settings(
     directory: Path,
     *,
@@ -83,7 +93,9 @@ def test_record_writes_exact_jpeg_and_detection_event_sidecar(
         now=SequenceClock([BASE_TIME]),
     )
 
-    assert store.record(frame_bytes, event)
+    backend_analysis = make_backend_analysis(event)
+
+    assert store.record(frame_bytes, event, backend_analysis)
 
     pairs = complete_pairs(tmp_path / "cam-001")
     assert len(pairs) == 1
@@ -96,6 +108,7 @@ def test_record_writes_exact_jpeg_and_detection_event_sidecar(
     assert payload["eventId"] == str(event.eventId)
     assert payload["cameraId"] == "cam-001"
     assert payload["detections"][0]["classCode"] == "MAGPIE"
+    assert payload["backendAnalysis"] == backend_analysis
     assert payload["detections"][0]["bbox"] == {
         "x": 10,
         "y": 20,
@@ -117,10 +130,19 @@ def test_record_rate_limits_each_camera_independently(tmp_path: Path) -> None:
         ),
     )
 
-    assert store.record(b"first", make_event(1, camera_id="cam-001"))
-    assert not store.record(b"skipped", make_event(2, camera_id="cam-001"))
-    assert store.record(b"other", make_event(3, camera_id="cam-002"))
-    assert store.record(b"second", make_event(4, camera_id="cam-001"))
+    first = make_event(1, camera_id="cam-001")
+    skipped = make_event(2, camera_id="cam-001")
+    other = make_event(3, camera_id="cam-002")
+    second = make_event(4, camera_id="cam-001")
+
+    assert store.record(b"first", first, make_backend_analysis(first))
+    assert not store.record(
+        b"skipped",
+        skipped,
+        make_backend_analysis(skipped),
+    )
+    assert store.record(b"other", other, make_backend_analysis(other))
+    assert store.record(b"second", second, make_backend_analysis(second))
 
     assert len(complete_pairs(tmp_path / "cam-001")) == 2
     assert len(complete_pairs(tmp_path / "cam-002")) == 1
@@ -140,7 +162,12 @@ def test_record_prunes_oldest_complete_pairs_by_count(tmp_path: Path) -> None:
     )
 
     for index in range(1, 4):
-        assert store.record(f"jpeg-{index}".encode(), make_event(index))
+        event = make_event(index)
+        assert store.record(
+            f"jpeg-{index}".encode(),
+            event,
+            make_backend_analysis(event),
+        )
 
     pairs = complete_pairs(tmp_path / "cam-001")
     assert len(pairs) == 2
@@ -159,7 +186,12 @@ def test_record_prunes_oldest_complete_pairs_by_total_bytes(
         monotonic=SequenceClock([0.0]),
         now=SequenceClock([BASE_TIME]),
     )
-    assert first_store.record(b"first-frame", make_event(1))
+    first_event = make_event(1)
+    assert first_store.record(
+        b"first-frame",
+        first_event,
+        make_backend_analysis(first_event),
+    )
     camera_directory = tmp_path / "cam-001"
     first_pair_size = sum(
         path.stat().st_size
@@ -172,7 +204,12 @@ def test_record_prunes_oldest_complete_pairs_by_total_bytes(
         monotonic=SequenceClock([1.0]),
         now=SequenceClock([BASE_TIME + timedelta(seconds=1)]),
     )
-    assert bounded_store.record(b"second-frame", make_event(2))
+    second_event = make_event(2)
+    assert bounded_store.record(
+        b"second-frame",
+        second_event,
+        make_backend_analysis(second_event),
+    )
 
     pairs = complete_pairs(camera_directory)
     assert len(pairs) == 1
@@ -188,8 +225,18 @@ def test_store_startup_removes_incomplete_files_and_prunes_existing_pairs(
         monotonic=SequenceClock([0.0, 1.0]),
         now=SequenceClock([BASE_TIME, BASE_TIME + timedelta(seconds=1)]),
     )
-    assert initial_store.record(b"first", make_event(1))
-    assert initial_store.record(b"second", make_event(2))
+    first_event = make_event(1)
+    second_event = make_event(2)
+    assert initial_store.record(
+        b"first",
+        first_event,
+        make_backend_analysis(first_event),
+    )
+    assert initial_store.record(
+        b"second",
+        second_event,
+        make_backend_analysis(second_event),
+    )
     camera_directory = tmp_path / "cam-001"
     (camera_directory / "orphan.jpg").write_bytes(b"orphan")
     (camera_directory / "sidecar-only.json").write_text("{}", encoding="utf-8")
