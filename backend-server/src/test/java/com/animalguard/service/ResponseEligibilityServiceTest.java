@@ -123,6 +123,27 @@ class ResponseEligibilityServiceTest {
     }
 
     @Test
+    void minimumRiskScoreRequiresAtLeastConfiguredScore() {
+        ResponseEligibilityService service = service(
+                true,
+                Set.of("MAGPIE"),
+                0.0,
+                null,
+                50,
+                null
+        );
+
+        assertThat(service.evaluate(
+                List.of(detection("MAGPIE", 0.99, null)),
+                assessment(49, RiskLevel.MEDIUM)
+        ).animalPresent()).isFalse();
+        assertThat(service.evaluate(
+                List.of(detection("MAGPIE", 0.99, null)),
+                assessment(50, RiskLevel.MEDIUM)
+        ).animalPresent()).isTrue();
+    }
+
+    @Test
     void oneEligibleDetectionMakesAggregateObservationPresent() {
         ResponseEligibilityService.ResponseEligibility result = service(
                 true,
@@ -151,17 +172,40 @@ class ResponseEligibilityServiceTest {
             Double minimumClassificationConfidence,
             RiskLevel minimumRiskLevel
     ) {
+        return service(
+                enabled,
+                allowedClassCodes,
+                minimumDetectionConfidence,
+                minimumClassificationConfidence,
+                null,
+                minimumRiskLevel
+        );
+    }
+
+    private ResponseEligibilityService service(
+            boolean enabled,
+            Set<String> allowedClassCodes,
+            double minimumDetectionConfidence,
+            Double minimumClassificationConfidence,
+            Integer minimumRiskScore,
+            RiskLevel minimumRiskLevel
+    ) {
         return new ResponseEligibilityService(new ResponsePolicyProperties(
                 enabled,
                 allowedClassCodes,
                 minimumDetectionConfidence,
                 minimumClassificationConfidence,
+                minimumRiskScore,
                 minimumRiskLevel
         ));
     }
 
     private RiskDecisionEngine.RiskAssessment assessment(RiskLevel level) {
-        return new RiskDecisionEngine.RiskAssessment(0, level, "test risk reason");
+        return assessment(0, level);
+    }
+
+    private RiskDecisionEngine.RiskAssessment assessment(int score, RiskLevel level) {
+        return new RiskDecisionEngine.RiskAssessment(score, level, "test risk reason");
     }
 
     private DetectionEventRequest.Detection detection(

@@ -67,6 +67,7 @@ animalguard:
     allowed-class-codes: ${RESPONSE_ALLOWED_CLASS_CODES:}
     minimum-detection-confidence: ${RESPONSE_MIN_DETECTION_CONFIDENCE:0.0}
     minimum-classification-confidence: ${RESPONSE_MIN_CLASSIFICATION_CONFIDENCE:}
+    minimum-risk-score: ${RESPONSE_MIN_RISK_SCORE:50}
     minimum-risk-level: ${RESPONSE_MIN_RISK_LEVEL:HIGH}
   device-control:
     cooldown: ${DEVICE_COMMAND_COOLDOWN:20s}

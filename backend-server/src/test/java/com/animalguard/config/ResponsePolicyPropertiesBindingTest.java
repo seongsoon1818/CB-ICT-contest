@@ -22,6 +22,7 @@ class ResponsePolicyPropertiesBindingTest {
             assertThat(properties.allowedClassCodes()).isEmpty();
             assertThat(properties.minimumDetectionConfidence()).isZero();
             assertThat(properties.minimumClassificationConfidence()).isNull();
+            assertThat(properties.minimumRiskScore()).isNull();
             assertThat(properties.minimumRiskLevel()).isNull();
         });
     }
@@ -41,6 +42,7 @@ class ResponsePolicyPropertiesBindingTest {
                         "animalguard.response-policy.allowed-class-codes=WILD_BOAR,MAGPIE",
                         "animalguard.response-policy.minimum-detection-confidence=0.7",
                         "animalguard.response-policy.minimum-classification-confidence=0.8",
+                        "animalguard.response-policy.minimum-risk-score=50",
                         "animalguard.response-policy.minimum-risk-level=MEDIUM"
                 )
                 .run(context -> {
@@ -49,6 +51,7 @@ class ResponsePolicyPropertiesBindingTest {
                     assertThat(properties.allowedClassCodes()).containsExactly("MAGPIE", "WILD_BOAR");
                     assertThat(properties.minimumDetectionConfidence()).isEqualTo(0.7);
                     assertThat(properties.minimumClassificationConfidence()).isEqualTo(0.8);
+                    assertThat(properties.minimumRiskScore()).isEqualTo(50);
                     assertThat(properties.minimumRiskLevel()).isEqualTo(RiskLevel.MEDIUM);
                 });
     }
@@ -75,6 +78,14 @@ class ResponsePolicyPropertiesBindingTest {
                         "animalguard.response-policy.enabled=true",
                         "animalguard.response-policy.allowed-class-codes=MAGPIE",
                         "animalguard.response-policy.minimum-classification-confidence=-0.01"
+                )
+                .run(context -> assertThat(context).hasFailed());
+
+        contextRunner
+                .withPropertyValues(
+                        "animalguard.response-policy.enabled=true",
+                        "animalguard.response-policy.allowed-class-codes=MAGPIE",
+                        "animalguard.response-policy.minimum-risk-score=101"
                 )
                 .run(context -> assertThat(context).hasFailed());
     }
