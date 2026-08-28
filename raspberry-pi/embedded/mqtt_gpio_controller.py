@@ -11,11 +11,12 @@ import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
 import paho.mqtt.client as mqtt
-from gpiozero import Motor, OutputDevice, Servo
+from gpiozero import AngularServo, Motor, OutputDevice
 
 
 MQTT_HOST = os.getenv("MQTT_HOST", "10.112.89.131")
@@ -24,6 +25,7 @@ MQTT_USERNAME = os.getenv("MQTT_USERNAME", "animalguard-pi-001")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 DEVICE_ID = os.getenv("MQTT_DEVICE_ID", "pi-001")
 MQTT_KEEPALIVE_SECONDS = 60
+FIRMWARE_VERSION = "mqtt-gpio-controller-v2"
 
 MOTOR_A_IN1_PIN = 17
 MOTOR_A_IN2_PIN = 27
@@ -33,10 +35,15 @@ MOTOR_STANDBY_PIN = 22
 SPEAKER_PIN: int | None = None
 SERVO_PIN = 19
 
-SERVO_LEFT_VALUE = -1.0
-SERVO_RIGHT_VALUE = 1.0
-SERVO_STOP_VALUE = 0.0
-SERVO_RUN_SECONDS = 0.1
+SERVO_STEP_DEGREES = 5.0
+SERVO_MIN_ANGLE = -60.0
+SERVO_MAX_ANGLE = 60.0
+SERVO_HARDWARE_MIN_ANGLE = -90.0
+SERVO_HARDWARE_MAX_ANGLE = 90.0
+SERVO_MIN_PULSE_WIDTH_SECONDS = 0.001
+SERVO_MAX_PULSE_WIDTH_SECONDS = 0.002
+SERVO_FRAME_WIDTH_SECONDS = 0.02
+SERVO_MOVE_SECONDS = 0.1
 MAX_MOTOR_DURATION_MS = 60_000
 MAX_SOUND_DURATION_MS = 60_000
 
@@ -44,13 +51,17 @@ COMMAND_TOPIC = f"animalguard/devices/{DEVICE_ID}/commands"
 ACK_TOPIC = f"animalguard/devices/{DEVICE_ID}/acks"
 STATUS_TOPIC = f"animalguard/devices/{DEVICE_ID}/status"
 DATABASE_PATH = Path("data/mqtt_gpio_controller.db")
+SERVO_ANGLE_STATE_KEY = "servo_angle"
 
 running = True
 motor_a: Motor | None = None
 motor_b: Motor | None = None
 standby_pin: OutputDevice | None = None
 speaker: OutputDevice | None = None
-servo: Servo | None = None
+# MG90S provides no position feedback, so this is the last commanded angle.
+# SQLite restores it across controller restarts without moving the servo at startup.
+servo: AngularServo | None = None
+current_servo_angle = 0.0
 gpio_lock = threading.Lock()
 timed_action_lock = threading.Lock()
 stop_event = threading.Event()
@@ -93,7 +104,7 @@ def status_payload(status: str) -> dict[str, str]:
         "deviceId": DEVICE_ID,
         "status": status,
         "reportedAt": now_iso(),
-        "firmwareVersion": "mqtt-gpio-controller-v1",
+        "firmwareVersion": FIRMWARE_VERSION,
     }
 
 
@@ -107,6 +118,51 @@ def initialize_database() -> None:
                 ack_json TEXT NOT NULL
             )
             """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS controller_state (
+                key TEXT PRIMARY KEY,
+                value REAL NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO controller_state (key, value)
+            VALUES (?, ?)
+            """,
+            (SERVO_ANGLE_STATE_KEY, 0.0),
+        )
+
+
+def load_servo_angle() -> float:
+    with sqlite3.connect(DATABASE_PATH) as connection:
+        row = connection.execute(
+            "SELECT value FROM controller_state WHERE key = ?",
+            (SERVO_ANGLE_STATE_KEY,),
+        ).fetchone()
+    if row is None:
+        raise RuntimeError("Servo angle state is missing")
+    angle = float(row[0])
+    if not isfinite(angle) or not SERVO_MIN_ANGLE <= angle <= SERVO_MAX_ANGLE:
+        raise RuntimeError(f"Invalid persisted servo angle: {angle}")
+    return angle
+
+
+def save_servo_angle(angle: float) -> None:
+    if not isfinite(angle) or not SERVO_MIN_ANGLE <= angle <= SERVO_MAX_ANGLE:
+        raise ValueError(
+            f"Servo angle must be between {SERVO_MIN_ANGLE} and {SERVO_MAX_ANGLE}"
+        )
+    with sqlite3.connect(DATABASE_PATH) as connection:
+        connection.execute(
+            """
+            INSERT INTO controller_state (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (SERVO_ANGLE_STATE_KEY, angle),
         )
 
 
@@ -153,7 +209,7 @@ def publish_ack(client: mqtt.Client, ack: dict[str, Any]) -> None:
 
 
 def initialize_hardware() -> None:
-    global motor_a, motor_b, standby_pin, speaker, servo
+    global motor_a, motor_b, standby_pin, speaker, servo, current_servo_angle
     configured_pins = [
         MOTOR_A_IN1_PIN,
         MOTOR_A_IN2_PIN,
@@ -167,6 +223,7 @@ def initialize_hardware() -> None:
     if len(configured_pins) != len(set(configured_pins)):
         raise ValueError("Configured GPIO pins must be unique")
 
+    current_servo_angle = load_servo_angle()
     motor_a = Motor(forward=MOTOR_A_IN1_PIN, backward=MOTOR_A_IN2_PIN, pwm=False)
     motor_b = Motor(forward=MOTOR_B_IN1_PIN, backward=MOTOR_B_IN2_PIN, pwm=False)
     standby_pin = OutputDevice(MOTOR_STANDBY_PIN, initial_value=False)
@@ -176,9 +233,14 @@ def initialize_hardware() -> None:
         else None
     )
     servo = (
-        Servo(
+        AngularServo(
             SERVO_PIN,
-            initial_value=SERVO_STOP_VALUE,
+            initial_angle=None,
+            min_angle=SERVO_HARDWARE_MIN_ANGLE,
+            max_angle=SERVO_HARDWARE_MAX_ANGLE,
+            min_pulse_width=SERVO_MIN_PULSE_WIDTH_SECONDS,
+            max_pulse_width=SERVO_MAX_PULSE_WIDTH_SECONDS,
+            frame_width=SERVO_FRAME_WIDTH_SECONDS,
         )
         if SERVO_PIN is not None
         else None
@@ -200,8 +262,6 @@ def stop_deterrent_outputs() -> None:
 def close_hardware() -> None:
     global motor_a, motor_b, standby_pin, speaker, servo
     stop_deterrent_outputs()
-    if servo is not None:
-        servo.value = SERVO_STOP_VALUE
     for device in (servo, speaker, motor_a, motor_b, standby_pin):
         if device is not None:
             device.close()
@@ -233,17 +293,24 @@ def start_deterrent_full() -> None:
             logging.warning("DETERRENT_FULL is running without a configured speaker")
 
 
-def rotate_camera(direction_value: float) -> None:
-    with gpio_lock:
-        if servo is None:
-            raise RuntimeError("SERVO_PIN is not configured")
-        servo.value = direction_value
+def rotate_camera(delta_degrees: float) -> None:
+    global current_servo_angle
     try:
-        time.sleep(SERVO_RUN_SECONDS)
+        with gpio_lock:
+            if servo is None:
+                raise RuntimeError("SERVO_PIN is not configured")
+            next_angle = min(
+                SERVO_MAX_ANGLE,
+                max(SERVO_MIN_ANGLE, current_servo_angle + delta_degrees),
+            )
+            servo.angle = next_angle
+            current_servo_angle = next_angle
+            save_servo_angle(next_angle)
+        time.sleep(SERVO_MOVE_SECONDS)
     finally:
         with gpio_lock:
             if servo is not None:
-                servo.value = SERVO_STOP_VALUE
+                servo.detach()
 
 
 def run_timed_action(
@@ -346,13 +413,13 @@ def handle_command(client: mqtt.Client, raw_payload: bytes) -> None:
         if command == "ROTATE_CAMERA_LEFT":
             if duration_ms is not None:
                 raise ValueError("ROTATE_CAMERA_LEFT durationMs must be null")
-            rotate_camera(SERVO_LEFT_VALUE)
+            rotate_camera(-SERVO_STEP_DEGREES)
             publish_ack(client, build_ack(command_id, "EXECUTED"))
             return
         if command == "ROTATE_CAMERA_RIGHT":
             if duration_ms is not None:
                 raise ValueError("ROTATE_CAMERA_RIGHT durationMs must be null")
-            rotate_camera(SERVO_RIGHT_VALUE)
+            rotate_camera(SERVO_STEP_DEGREES)
             publish_ack(client, build_ack(command_id, "EXECUTED"))
             return
         if command in {"SOUND_ALERT", "DETERRENT_FULL"}:
