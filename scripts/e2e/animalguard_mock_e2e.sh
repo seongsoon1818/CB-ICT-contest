@@ -110,6 +110,7 @@ MQTT_PROXY_PID=$!
 
 (
   cd "$REPOSITORY_ROOT/raspberry-pi/mqtt-simulator"
+  # This Mock E2E exercises the full observation lifecycle independently of the production HIGH-only gate.
   exec env \
     MQTT_HOST=127.0.0.1 \
     MQTT_PORT="$MQTT_HOST_PORT" \
@@ -140,6 +141,7 @@ MQTT_SIMULATOR_PID=$!
     RISK_POLICY_CONFIRMED=true \
     RESPONSE_POLICY_ENABLED=true \
     RESPONSE_ALLOWED_CLASS_CODES=MAGPIE \
+    RESPONSE_MIN_RISK_LEVEL=LOW \
     OPERATOR_API_ENABLED=true \
     OPERATOR_API_TOKEN="$OPERATOR_API_TOKEN" \
     ANIMAL_PERSISTENCE_THRESHOLD=1s \
