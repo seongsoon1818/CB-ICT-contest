@@ -3,10 +3,11 @@
 이 디렉터리는 AnimalGuard 모델 bundle 계약을 정의합니다. 실제 서버 bundle은 다음 구조를 사용합니다.
 
 ```text
-/opt/animalguard/models/releases/v1/
+/opt/animalguard/models/releases/2026-08-24.7e4f5549/
 ├── model-manifest.json
 ├── classes.json
-└── detector.onnx 또는 detector.pt
+├── SHA256SUMS
+└── wildlife_yolov8n_11class.pt
 ```
 
 classifier가 실제 pipeline에 포함될 때만 같은 bundle에 `classifier.onnx` 또는 `classifier.pt`를 둡니다. 모델 바이너리와 가중치 파일은 GitHub에 커밋하지 않습니다.
@@ -16,8 +17,17 @@ classifier가 실제 pipeline에 포함될 때만 같은 bundle에 `classifier.o
 - `model-manifest.schema.json`: bundle metadata, model API, 전처리 경계 계약
 - `class-map.schema.json`: model class ID와 Detection Event `classCode` 매핑 계약
 - `class-map.example.json`: 형식 설명용 예제이며 운영 class 목록이 아님
+- `bundle-metadata/wildlife-yolov8n-11class/`: 전달받은 11-class checkpoint의 검증된 manifest, class map과 SHA-256
 
-운영 runtime, 모델 파일 형식, 전처리, 출력 구조와 `outputAdapter`는 아직 확정되지 않았습니다. 따라서 특정 runtime을 운영 결정처럼 보이게 하는 example manifest는 제공하지 않습니다. 결정 항목은 GitHub 이슈 #16에서 추적합니다.
+현재 구현이 지원하는 조합은 PyTorch checkpoint, `ultralytics-8.4.125`, RGB 640x640 letterbox 입력과 `ultralytics-yolo-detect-v1`입니다. NMS IoU `0.7`은 pinned runtime의 `DEFAULT_CFG.iou` 값이며 manifest에서 명시적으로 전달합니다. 다른 runtime, output adapter, detector task, class ID 집합 또는 대소문자를 제외하고 classCode와 일치하지 않는 checkpoint class name은 시작 시 거절합니다. 모델 바이너리는 전달·배포 경로에만 두며 저장소 metadata 디렉터리는 그 자체로 완전한 실행 bundle이 아닙니다.
+
+## 제공된 11-class checkpoint
+
+검증된 외부 파일명은 `wildlife_yolov8n_11class.pt`, SHA-256은 `7e4f5549f40b844f2156c31739894e1a8cbbd33f4ef59d6d3f0b25e555fc4572`입니다. 모델 내 ID 0~10은 `MALLARD`, `COMMON_RAVEN`, `TREE_SPARROW`, `MAGPIE`, `CHIPMUNK`, `RACCOON_DOG`, `WILD_BOAR`, `EURASIAN_RED_SQUIRREL`, `WATER_DEER`, `KOREAN_HARE`, `ROE_DEER` 순서입니다.
+
+AI팀 package의 `risk_rules.json`, ROI, 별도 HTTP API와 SQLite history는 bundle 입력이 아닙니다. AI Server는 탐지만 전달하고 class별 위험도와 장치 명령은 기존 Backend 정책이 결정합니다.
+
+`ultralytics==8.4.125` 설치 package metadata는 license를 AGPL-3.0으로 선언합니다. 운영 배포·배포물 제공 방식에 적합한지는 별도 license 검토 대상으로 남깁니다.
 
 ## Manifest v1
 
@@ -43,7 +53,7 @@ classifier가 실제 pipeline에 포함될 때만 같은 bundle에 `classifier.o
 
 ## 파일 경계
 
-manifest의 `detector.file`, `classifier.file`, `classMapFile`은 bundle 내부의 실제 regular file만 가리킬 수 있습니다. 절대경로, `..`, bundle 밖으로 resolve되는 symlink, 없는 파일과 디렉터리는 거절합니다. 이번 계약은 binary hash나 서명을 강제하지 않습니다.
+manifest의 `detector.file`, `classifier.file`, `classMapFile`은 bundle 내부의 실제 regular file만 가리킬 수 있습니다. 절대경로, `..`, bundle 밖으로 resolve되는 symlink, 없는 파일과 디렉터리는 거절합니다. 공통 schema는 binary hash나 서명을 강제하지 않지만 제공된 checkpoint metadata에는 배치 전 대조할 `SHA256SUMS`를 포함합니다.
 
 ## 재시작 기반 교체
 
@@ -59,12 +69,14 @@ manifest의 `detector.file`, `classifier.file`, `classMapFile`은 bundle 내부�
 
 배포 절차:
 
-1. 새 release 디렉터리에 manifest, class map, 필요한 model file을 bundle 단위로 모두 복사합니다.
-2. manifest와 class map 계약 및 파일 존재를 검증합니다.
-3. `current` symlink를 새 release로 교체합니다.
-4. AI Server를 재시작합니다.
-5. `/health/ready`가 새 `bundleVersion`·model version으로 200인지 확인합니다.
-6. 샘플 JPEG로 `/api/v1/analyze` smoke test를 실행합니다.
+1. 새 release 디렉터리에 `bundle-metadata/wildlife-yolov8n-11class/`의 세 파일을 복사합니다.
+2. 신뢰된 전달 경로의 checkpoint를 manifest와 같은 `wildlife_yolov8n_11class.pt` 이름으로 복사합니다. PyTorch `.pt`는 pickle 기반 artifact이므로 출처와 SHA-256을 확인하지 않은 파일은 로드하지 않습니다.
+3. release 디렉터리에서 `shasum -a 256 -c SHA256SUMS`로 checkpoint를 검증합니다.
+4. manifest와 class map 계약 및 파일 존재를 검증합니다.
+5. `current` symlink를 새 release로 교체합니다.
+6. AI Server를 재시작합니다.
+7. `/health/ready`가 새 `bundleVersion`·model version으로 200인지 확인합니다.
+8. 샘플 JPEG로 `/api/v1/analyze` smoke test를 실행합니다.
 
 AI Server 가상환경에서 bundle 계약과 파일 경계를 별도로 확인할 수 있습니다.
 
