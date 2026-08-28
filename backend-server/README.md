@@ -1,6 +1,6 @@
 # Backend Server
 
-AnimalGuard의 Java 17·Spring Boot 3 Backend 서버입니다. Detection Event v1과 RiskDecision을 저장하고 camera별 aggregate animal observation으로 automatic semantic command를 선택합니다. RiskDecision은 계속 전체 detection의 감사 판단이며 response eligibility는 별도 설정으로 어떤 detection이 automatic observation에 참여할지만 결정합니다. 선택적인 minimum risk level은 기존 RiskDecision 결과를 eligibility gate로 사용할 뿐 점수 계산이나 command type을 바꾸지 않습니다.
+AnimalGuard의 Java 17·Spring Boot 3 Backend 서버입니다. Detection Event v1과 RiskDecision을 저장하고 camera별 aggregate animal observation으로 automatic semantic command를 선택합니다. RiskDecision은 계속 전체 detection의 감사 판단이며 response eligibility는 별도 설정으로 어떤 detection이 automatic observation에 참여할지만 결정합니다. 기본 HIGH minimum risk level은 기존 RiskDecision 결과를 eligibility gate로 사용할 뿐 점수 계산이나 command type을 바꾸지 않습니다.
 
 ## API
 
@@ -74,7 +74,7 @@ PRESENT
 
 ## 위험도 설정
 
-`application.yml`의 `animalguard.risk`에서 class score, 탐지 수 threshold와 점수, confidence threshold와 점수, LOW/MEDIUM/HIGH 경계를 설정합니다. 설정 범위를 벗어난 값이나 역전된 위험도 경계는 애플리케이션 시작 시 거부됩니다. 이 값들은 저장·응답하는 RiskDecision을 계산하며, response policy의 `minimum-risk-level`을 명시한 경우에만 그 결과 level이 eligibility gate로도 사용됩니다. 운영 기본 class score는 현재 `MAGPIE: 30`, `UNKNOWN: 0`만 정의하며 다른 유해동물의 운영 점수는 확정하지 않았습니다. 따라서 이슈 #5에서 점수만 확정해도 자동 대응을 허용하지 않으며 response allowlist·threshold와 두 global enable gate를 별도로 확인해야 합니다.
+`application.yml`의 `animalguard.risk`에서 class score, 탐지 수 threshold와 점수, confidence threshold와 점수, LOW/MEDIUM/HIGH 경계를 설정합니다. 설정 범위를 벗어난 값이나 역전된 위험도 경계는 애플리케이션 시작 시 거부됩니다. 이 값들은 저장·응답하는 RiskDecision을 계산하며, response policy의 기본 `minimum-risk-level=HIGH`가 그 결과 level을 eligibility gate로 사용합니다. 운영 기본 class score는 현재 `MAGPIE: 30`, `UNKNOWN: 0`만 정의하며 다른 유해동물의 운영 점수는 확정하지 않았습니다. 따라서 이슈 #5에서 점수만 확정해도 자동 대응을 허용하지 않으며 response allowlist·threshold와 두 global enable gate를 별도로 확인해야 합니다.
 
 ## 모델 독립 automatic response eligibility
 
@@ -85,17 +85,17 @@ animalguard:
     allowed-class-codes: ${RESPONSE_ALLOWED_CLASS_CODES:}
     minimum-detection-confidence: ${RESPONSE_MIN_DETECTION_CONFIDENCE:0.0}
     minimum-classification-confidence: ${RESPONSE_MIN_CLASSIFICATION_CONFIDENCE:}
-    minimum-risk-level: ${RESPONSE_MIN_RISK_LEVEL:}
+    minimum-risk-level: ${RESPONSE_MIN_RISK_LEVEL:HIGH}
 ```
 
-안전 기본값은 disabled입니다. disabled에서는 API validation을 통과한 detection도 automatic response 관점의 negative observation으로 처리하고 `RESPONSE_POLICY_DISABLED`가 일반 actuation 시작 preflight를 차단합니다. DetectionEvent, 모든 AnimalDetection과 전체 detection으로 계산한 RiskDecision은 그대로 저장합니다. 이 분리는 모델·운영 정책이 확정되기 전에 presence duration을 미리 누적하지 않게 합니다.
+안전 기본값은 disabled이고 automatic response의 최소 위험도는 `HIGH`입니다. disabled에서는 API validation을 통과한 detection도 automatic response 관점의 negative observation으로 처리하고 `RESPONSE_POLICY_DISABLED`가 일반 actuation 시작 preflight를 차단합니다. policy를 활성화해도 LOW/MEDIUM detection은 DetectionEvent, 모든 AnimalDetection과 전체 detection으로 계산한 RiskDecision을 그대로 저장한 뒤 response-negative observation으로 처리하므로 새 자동 명령을 요청하지 않습니다. 이 분리는 모델·운영 정책이 확정되기 전에 presence duration을 미리 누적하지 않게 합니다.
 
-enabled이면 allowlist는 비어 있을 수 없고 classCode는 API와 같은 대문자 형식이어야 합니다. 두 confidence threshold는 0~1이며 minimum risk level은 LOW, MEDIUM, HIGH 또는 미설정입니다. 각 detection은 다음 조건을 모두 만족해야 eligible입니다.
+enabled이면 allowlist는 비어 있을 수 없고 classCode는 API와 같은 대문자 형식이어야 합니다. 두 confidence threshold는 0~1이며 minimum risk level은 LOW, MEDIUM 또는 HIGH입니다. 서버 기본값은 HIGH이며 더 낮은 값을 사용하려면 운영 근거와 함께 명시적으로 override해야 합니다. 각 detection은 다음 조건을 모두 만족해야 eligible입니다.
 
 1. classCode가 allowlist에 포함됩니다. `UNKNOWN`도 명시적으로 포함한 경우에만 통과합니다.
 2. detection confidence가 minimum 이상입니다.
 3. classification minimum을 설정했다면 classifier 결과가 존재하고 minimum 이상입니다. classifier가 없는 event는 이 조건을 통과하지 않습니다.
-4. minimum risk level을 설정했다면 전체 detection으로 먼저 계산·저장한 RiskDecision level이 minimum 이상입니다.
+4. 전체 detection으로 먼저 계산·저장한 RiskDecision level이 minimum 이상입니다. 기본값 기준으로 HIGH만 통과합니다.
 
 하나 이상의 detection이 eligible이면 `animalPresent=true`, 아니면 empty detection과 같은 automatic negative observation으로 state machine에 전달합니다. 따라서 이전 positive session의 종료·safety STOP 평가도 기존 observation 규칙을 따릅니다. `STOP_DETERRENT`는 response policy blocker를 우회하고 수동 command는 response policy와 무관합니다. decision 로그는 payload 대신 `totalDetections`, `eligibleDetections`, `responsePolicyEnabled`, `minimumRiskLevel`, 최종 `animalPresent`만 기록합니다.
 
@@ -104,11 +104,26 @@ enabled이면 allowlist는 비어 있을 수 없고 classCode는 API와 같은 �
 - `RESPONSE_ALLOWED_CLASS_CODES`
 - `RESPONSE_MIN_DETECTION_CONFIDENCE`
 - classifier를 쓰는 경우 `RESPONSE_MIN_CLASSIFICATION_CONFIDENCE`; 쓰지 않으면 미설정
-- 필요한 경우 `RESPONSE_MIN_RISK_LEVEL`; 쓰지 않으면 미설정
+- 기본 `HIGH`를 변경해야 하는 경우에만 근거와 함께 `RESPONSE_MIN_RISK_LEVEL` override
 - 이슈 #5 정책 확인 뒤 `RISK_POLICY_CONFIRMED=true`
 - 앞의 값과 실제 MQTT/device readiness를 확인한 마지막 단계에서 `RESPONSE_POLICY_ENABLED=true`
 
 이 설정은 모델 runtime이나 classCode별 command vocabulary를 선택하지 않습니다. 이슈 #5와 #16은 실제 class list, threshold와 운영 근거가 확인될 때까지 별도로 유지합니다.
+
+### 설정 적용과 Backend 재시작
+
+`RESPONSE_MIN_RISK_LEVEL`, response allowlist·confidence, risk score, threshold와 enable gate는 애플리케이션 시작 시 Spring configuration property로 바인딩됩니다. 실행 중인 프로세스의 환경변수나 `application.yml`만 바꿔서는 반영되지 않으므로 변경 후 Backend 프로세스를 재시작하거나 새 설정으로 재배포해야 합니다.
+
+이 설정 변경에는 DB migration이 없습니다. 이 변경만으로 AI Server, Raspberry Pi, MQTT broker 또는 PostgreSQL을 재시작할 필요도 없습니다. 해당 컴포넌트의 자체 설정·binary·model을 함께 바꾼 경우에만 각각의 절차를 따릅니다.
+
+운영 적용 순서는 다음과 같습니다.
+
+1. `ACTUATION_ENABLED=false`, `RISK_POLICY_CONFIRMED=false`, `RESPONSE_POLICY_ENABLED=false`를 유지한 채 승인된 score, allowlist, confidence, camera mapping과 MQTT 설정을 배포합니다.
+2. Backend를 재시작하고 startup validation, 대표 Detection Event의 RiskDecision과 `GET /api/v1/actuation/preflight` blocker를 확인합니다.
+3. 이슈 #5와 실제 transport/mapping 준비가 모두 확인된 뒤 enable gate 환경변수를 변경하고 Backend를 다시 재시작합니다.
+4. `GET /api/v1/actuation/preflight`가 `enabled=true`, `ready=true`, `blockers=[]`인지 확인한 뒤 실제 작동 검증을 진행합니다.
+
+기본 HIGH gate는 자동 SOUND_ALERT와 DETERRENT_FULL 시작을 제한합니다. 이미 작동한 deterrent를 안전하게 정지하는 `STOP_DETERRENT`의 reduced gate는 유지됩니다.
 
 ## 장치 명령 설정과 cooldown
 
