@@ -13,7 +13,7 @@ import cv2
 import requests
 
 
-SERVER_URL = "http://10.112.89.131:8000"
+SERVER_URL = "http://10.112.89.131:8000/api/v1/analyze"
 CAMERA_ID = "piseong"
 CAMERA_INDEX = 0
 FRAME_WIDTH = 640
