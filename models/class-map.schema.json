@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://animalguard.local/contracts/class-map-v1.schema.json",
+  "title": "AnimalGuard Class Map v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "classes",
+    "unknownClassCode"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "animalguard-class-map-v1"
+    },
+    "classes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "classCode"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "classCode": {
+            "$ref": "#/$defs/classCode"
+          }
+        }
+      }
+    },
+    "unknownClassCode": {
+      "$ref": "#/$defs/classCode"
+    }
+  },
+  "$defs": {
+    "classCode": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    }
+  }
+}

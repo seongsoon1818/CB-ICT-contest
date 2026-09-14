@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://animalguard.local/contracts/model-manifest-v1.schema.json",
+  "title": "AnimalGuard Model Bundle Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "bundleVersion",
+    "runtime",
+    "modelApiVersion",
+    "outputAdapter",
+    "detector",
+    "classifier",
+    "classMapFile",
+    "unknownClassCode"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "animalguard-model-bundle-v1"
+    },
+    "bundleVersion": {
+      "$ref": "#/$defs/nonBlankString"
+    },
+    "runtime": {
+      "$ref": "#/$defs/nonBlankString"
+    },
+    "modelApiVersion": {
+      "const": "animalguard-detection-v1"
+    },
+    "outputAdapter": {
+      "$ref": "#/$defs/nonBlankString"
+    },
+    "detector": {
+      "$ref": "#/$defs/detector"
+    },
+    "classifier": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/classifier"
+        }
+      ]
+    },
+    "classMapFile": {
+      "$ref": "#/$defs/nonBlankString"
+    },
+    "unknownClassCode": {
+      "$ref": "#/$defs/classCode"
+    }
+  },
+  "$defs": {
+    "nonBlankString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "classCode": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "detector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "version",
+        "inputWidth",
+        "inputHeight",
+        "colorSpace",
+        "resizeMode",
+        "confidenceThreshold",
+        "nmsThreshold"
+      ],
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "version": {
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "inputWidth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "inputHeight": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "colorSpace": {
+          "const": "RGB"
+        },
+        "resizeMode": {
+          "enum": [
+            "letterbox",
+            "stretch"
+          ]
+        },
+        "confidenceThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "nmsThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "classifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "version"
+      ],
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/nonBlankString"
+        },
+        "version": {
+          "$ref": "#/$defs/nonBlankString"
+        }
+      }
+    }
+  }
+}

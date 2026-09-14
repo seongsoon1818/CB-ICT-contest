@@ -1,0 +1,46 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:animalguard;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    # Flyway alone creates the test schema; Hibernate only validates the migrated result.
+    hibernate:
+      ddl-auto: validate
+    database-platform: org.hibernate.dialect.H2Dialect
+
+animalguard:
+  response-policy:
+    # Existing tests set their own risk-level scenarios; score-gate behavior has a focused unit test.
+    minimum-risk-score: 0
+  observation:
+    persistence-threshold: 5s
+    absence-grace: 2s
+    continuity-timeout: 3s
+    sound-alert-duration: 2s
+    deterrent-full-duration: 5s
+    no-event-timeout: 10s
+    deterrent-repeat-interval: 0s
+  reconciliation:
+    # Keep background scheduling dormant; reconciliation tests invoke a scan explicitly.
+    scan-interval: 1h
+    published-timeout: 15s
+    acknowledged-timeout: 15s
+    max-automatic-attempts-per-session: 3
+  device-control:
+    cooldown: 20s
+    command-ttl: 10s
+    camera-device-mappings:
+      cam-001: pi-001
+      cam-002: pi-002
+  risk:
+    class-scores:
+      MAGPIE: 25
+      UNKNOWN: 0
+    count-threshold: 3
+    count-score: 25
+    confidence-threshold: 0.90
+    confidence-score: 20
+    medium-threshold: 40
+    high-threshold: 70

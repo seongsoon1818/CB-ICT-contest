@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "animalguard-model-bundle-v1",
+  "bundleVersion": "2026-08-24.7e4f5549",
+  "runtime": "ultralytics-8.4.125",
+  "modelApiVersion": "animalguard-detection-v1",
+  "outputAdapter": "ultralytics-yolo-detect-v1",
+  "detector": {
+    "file": "wildlife_yolov8n_11class.pt",
+    "version": "sha256:7e4f5549f40b844f2156c31739894e1a8cbbd33f4ef59d6d3f0b25e555fc4572",
+    "inputWidth": 640,
+    "inputHeight": 640,
+    "colorSpace": "RGB",
+    "resizeMode": "letterbox",
+    "confidenceThreshold": 0.6,
+    "nmsThreshold": 0.7
+  },
+  "classifier": null,
+  "classMapFile": "classes.json",
+  "unknownClassCode": "UNKNOWN"
+}

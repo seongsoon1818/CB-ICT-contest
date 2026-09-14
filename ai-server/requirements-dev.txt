@@ -1,0 +1,4 @@
+-r requirements.txt
+
+pytest>=8,<9
+jsonschema>=4.23,<5

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "animalguard-class-map-v1",
+  "classes": [
+    {
+      "id": 0,
+      "classCode": "MALLARD"
+    },
+    {
+      "id": 1,
+      "classCode": "COMMON_RAVEN"
+    },
+    {
+      "id": 2,
+      "classCode": "TREE_SPARROW"
+    },
+    {
+      "id": 3,
+      "classCode": "MAGPIE"
+    },
+    {
+      "id": 4,
+      "classCode": "CHIPMUNK"
+    },
+    {
+      "id": 5,
+      "classCode": "RACCOON_DOG"
+    },
+    {
+      "id": 6,
+      "classCode": "WILD_BOAR"
+    },
+    {
+      "id": 7,
+      "classCode": "EURASIAN_RED_SQUIRREL"
+    },
+    {
+      "id": 8,
+      "classCode": "WATER_DEER"
+    },
+    {
+      "id": 9,
+      "classCode": "KOREAN_HARE"
+    },
+    {
+      "id": 10,
+      "classCode": "ROE_DEER"
+    }
+  ],
+  "unknownClassCode": "UNKNOWN"
+}

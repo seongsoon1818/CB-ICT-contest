@@ -1,0 +1,95 @@
+spring:
+  application:
+    name: animalguard-backend
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    placeholder-replacement: false
+    # Flyway 9+ default; keep explicit so destructive clean remains disabled by policy.
+    clean-disabled: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+  task:
+    scheduling:
+      pool:
+        size: 1
+
+server:
+  port: ${SERVER_PORT:8080}
+
+animalguard:
+  mqtt:
+    enabled: ${MQTT_ENABLED:false}
+    host: ${MQTT_HOST:127.0.0.1}
+    port: ${MQTT_PORT:1883}
+    client-id: ${MQTT_CLIENT_ID:animalguard-backend}
+    username: ${MQTT_USERNAME:}
+    password: ${MQTT_PASSWORD:}
+    connect-timeout: ${MQTT_CONNECT_TIMEOUT:5s}
+    publish-timeout: ${MQTT_PUBLISH_TIMEOUT:5s}
+    dispatch-interval: ${MQTT_DISPATCH_INTERVAL:500ms}
+    dispatch-batch-size: ${MQTT_DISPATCH_BATCH_SIZE:20}
+  observation:
+    # MVP verification defaults; production values require operational tuning.
+    persistence-threshold: ${ANIMAL_PERSISTENCE_THRESHOLD:5s}
+    absence-grace: ${ANIMAL_ABSENCE_GRACE:2s}
+    continuity-timeout: ${ANIMAL_CONTINUITY_TIMEOUT:3s}
+    sound-alert-duration: ${SOUND_ALERT_DURATION:2s}
+    deterrent-full-duration: ${DETERRENT_FULL_DURATION:5s}
+    no-event-timeout: ${ANIMAL_NO_EVENT_TIMEOUT:10s}
+    deterrent-repeat-interval: ${DETERRENT_REPEAT_INTERVAL:0s}
+  reconciliation:
+    scan-interval: ${COMMAND_RECONCILIATION_INTERVAL:1s}
+    published-timeout: ${COMMAND_PUBLISHED_TIMEOUT:15s}
+    acknowledged-timeout: ${COMMAND_ACKNOWLEDGED_TIMEOUT:15s}
+    max-automatic-attempts-per-session: ${MAX_AUTOMATIC_ATTEMPTS_PER_SESSION:3}
+  actuation:
+    enabled: ${ACTUATION_ENABLED:false}
+    risk-policy-confirmed: ${RISK_POLICY_CONFIRMED:false}
+  operator-api:
+    enabled: ${OPERATOR_API_ENABLED:false}
+    token: ${OPERATOR_API_TOKEN:}
+  response-policy:
+    enabled: ${RESPONSE_POLICY_ENABLED:false}
+    allowed-class-codes: ${RESPONSE_ALLOWED_CLASS_CODES:}
+    minimum-detection-confidence: ${RESPONSE_MIN_DETECTION_CONFIDENCE:0.0}
+    minimum-classification-confidence: ${RESPONSE_MIN_CLASSIFICATION_CONFIDENCE:}
+    minimum-risk-score: ${RESPONSE_MIN_RISK_SCORE:50}
+    minimum-risk-level: ${RESPONSE_MIN_RISK_LEVEL:HIGH}
+  device-control:
+    cooldown: ${DEVICE_COMMAND_COOLDOWN:20s}
+    command-ttl: ${DEVICE_COMMAND_TTL:10s}
+    camera-device-mappings: {}
+  risk:
+    class-scores:
+      WILD_BOAR: 70
+      WATER_DEER: 70
+      MAGPIE: 70
+      COMMON_RAVEN: 40
+      TREE_SPARROW: 40
+      EURASIAN_RED_SQUIRREL: 40
+      MALLARD: 10
+      CHIPMUNK: 0
+      RACCOON_DOG: 0
+      KOREAN_HARE: 0
+      ROE_DEER: 0
+      UNKNOWN: 0
+    count-threshold: 3
+    count-score: 20
+    confidence-threshold: 0.90
+    confidence-score: 20
+    medium-threshold: 40
+    high-threshold: 70
